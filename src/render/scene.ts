@@ -1,0 +1,92 @@
+import * as THREE from 'three';
+import { Combat, clamp, strikeTip } from '../game/combat';
+import type { CombatEvent } from '../game/types';
+import { FighterRig } from './fighter';
+import { ImpactPhysics } from './physics';
+import { batchRigidParts } from './batch';
+
+function canvasTexture(width: number, height: number, draw: (c: CanvasRenderingContext2D) => void) { const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height; const c = canvas.getContext('2d')!; draw(c); const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture; }
+export class ArenaView {
+  renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(39, 1, .1, 100);
+  rigs = [new FighterRig(0), new FighterRig(1)]; physics = new ImpactPhysics(); debug = false;
+  private light: THREE.DirectionalLight; private shake = 0; private clock = 0; private hitMarkers: THREE.Mesh[] = [];
+  private particles: { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }[] = [];
+  private cagePanels: THREE.Mesh[] = []; private target = new THREE.Vector3(0, .85, 0); private look = this.target.clone();
+  fps = 60; quality = 'high';
+  constructor(container: HTMLElement) {
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.12; container.appendChild(this.renderer.domElement);
+    this.renderer.domElement.setAttribute('aria-label', '3D-Oktagon mit zwei MMA-Kämpfern');
+    this.renderer.domElement.tabIndex = 0;
+    this.scene.background = new THREE.Color('#101613'); this.scene.fog = new THREE.FogExp2('#101613', .038);
+    this.scene.add(new THREE.HemisphereLight('#c9e1d9', '#48463a', 2.1));
+    this.light = new THREE.DirectionalLight('#fff0d9', 4.1); this.light.position.set(-3, 9, 4); this.light.castShadow = true;
+    this.light.shadow.mapSize.set(2048, 2048); this.light.shadow.camera.left = -7; this.light.shadow.camera.right = 7; this.light.shadow.camera.top = 7; this.light.shadow.camera.bottom = -7; this.light.shadow.normalBias = .035; this.scene.add(this.light);
+    const rim = new THREE.DirectionalLight('#a7cfeb', 2); rim.position.set(3, 5, -5); this.scene.add(rim);
+    this.buildArena(); batchRigidParts(this.scene); this.rigs.forEach(r => this.scene.add(r.root));
+    for (let i = 0; i < 2; i++) { const marker = new THREE.Mesh(new THREE.SphereGeometry(.2, 12, 8), new THREE.MeshBasicMaterial({ color: i ? '#ff736d' : '#72caff', wireframe: true, depthTest: false })); marker.visible = false; this.scene.add(marker); this.hitMarkers.push(marker); }
+    this.camera.position.set(0, 5.6, 9.9);
+    const resize = () => { this.camera.aspect = container.clientWidth / container.clientHeight; this.camera.updateProjectionMatrix(); this.renderer.setSize(container.clientWidth, container.clientHeight); };
+    new ResizeObserver(resize).observe(container); resize();
+  }
+  async init() { await this.physics.init(); }
+  setQuality(quality: string) { this.quality = quality; this.renderer.setPixelRatio(Math.min(devicePixelRatio, quality === 'high' ? 1.5 : .7)); this.renderer.shadowMap.enabled = quality === 'high'; }
+  private buildArena() {
+    const dark = new THREE.MeshStandardMaterial({ color: '#1c2421', roughness: .82, metalness: .2 });
+    const steel = new THREE.MeshStandardMaterial({ color: '#39443d', roughness: .46, metalness: .65 });
+    const platform = new THREE.Mesh(new THREE.CylinderGeometry(5.05, 5.15, .34, 8), dark); platform.rotation.y = Math.PI / 8; platform.position.y = -.2; platform.receiveShadow = true; this.scene.add(platform);
+    const matTexture = canvasTexture(2048, 2048, c => {
+      c.fillStyle = '#b4bcac'; c.fillRect(0, 0, 2048, 2048);
+      let seed = 9; for (let i = 0; i < 45000; i++) { seed = (seed * 1664525 + 1013904223) >>> 0; const x = seed % 2048; seed = (seed * 1664525 + 1013904223) >>> 0; c.fillStyle = i % 2 ? '#ffffff06' : '#00000009'; c.fillRect(x, seed % 2048, 2, 2); }
+      c.strokeStyle = '#677665'; c.lineWidth = 7; c.beginPath(); for (let i = 0; i <= 8; i++) { const a = Math.PI / 8 + i * Math.PI / 4; const x = 1024 + Math.cos(a) * 825, y = 1024 + Math.sin(a) * 825; i ? c.lineTo(x, y) : c.moveTo(x, y); } c.stroke();
+      c.save(); c.translate(1024, 1050); c.rotate(-Math.PI / 2); c.textAlign = 'center'; c.fillStyle = '#344a3d'; c.font = 'italic 900 350px Arial'; c.fillText('TUC', 0, 50); c.font = 'bold 29px Arial'; c.fillText('TYLER’S ULTIMATE CHAMPIONSHIP', 0, 115); c.fillStyle = '#738573'; c.font = 'bold 28px Arial'; c.fillText('THE PROVING GROUND', 0, 180); c.restore();
+      c.textAlign = 'center'; c.fillStyle = '#41594c'; c.font = 'bold 46px Arial'; c.fillText('EARN YOUR PLACE.', 1024, 380); c.fillText('T U C  /  0 0 1', 1024, 1710);
+      c.fillStyle = '#3c6a94'; c.fillRect(220, 900, 22, 240); c.fillStyle = '#a04848'; c.fillRect(1810, 900, 22, 240);
+    });
+    matTexture.anisotropy = 8;
+    const mat = new THREE.Mesh(new THREE.CircleGeometry(5.03, 8), new THREE.MeshStandardMaterial({ map: matTexture, roughness: .92 })); mat.rotation.x = -Math.PI / 2; mat.rotation.z = Math.PI / 8; mat.position.y = -.015; mat.receiveShadow = true; this.scene.add(mat);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: '#111a15', roughness: .92 })); floor.rotation.x = -Math.PI / 2; floor.position.y = -.39; floor.receiveShadow = true; this.scene.add(floor);
+    const fenceTex = canvasTexture(64, 64, c => { c.clearRect(0, 0, 64, 64); c.strokeStyle = '#5f6b60'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, 32); c.lineTo(32, 0); c.lineTo(64, 32); c.lineTo(32, 64); c.closePath(); c.stroke(); }); fenceTex.wrapS = fenceTex.wrapT = THREE.RepeatWrapping; fenceTex.repeat.set(19, 11);
+    for (let i = 0; i < 8; i++) {
+      const a = Math.PI / 8 + i * Math.PI / 4, b = a + Math.PI / 4;
+      const p = new THREE.Vector3(Math.cos(a) * 5.03, 0, Math.sin(a) * 5.03), q = new THREE.Vector3(Math.cos(b) * 5.03, 0, Math.sin(b) * 5.03);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(.078, .078, 1.94, 12), dark); post.position.copy(p); post.position.y = .95; post.castShadow = true; this.scene.add(post);
+      const midpoint = p.clone().add(q).multiplyScalar(.5), length = p.distanceTo(q), yaw = Math.atan2(q.x - p.x, q.z - p.z);
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(length, 1.8), new THREE.MeshStandardMaterial({ map: fenceTex, transparent: true, opacity: .52, side: THREE.DoubleSide, depthWrite: false, roughness: .8 })); panel.position.copy(midpoint); panel.position.y = .9; panel.rotation.y = yaw + Math.PI / 2; this.scene.add(panel); this.cagePanels.push(panel);
+      for (const height of [.1, 1.86]) { const rail = new THREE.Mesh(new THREE.CylinderGeometry(.04, .04, length, 8), steel); rail.position.copy(midpoint); rail.position.y = height; rail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), q.clone().sub(p).normalize()); this.scene.add(rail); }
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(.18, 1.5, .18), new THREE.MeshStandardMaterial({ color: i === 0 || i === 7 ? '#913f46' : i === 3 || i === 4 ? '#315d8a' : '#283d30', roughness: .7 })); pad.position.copy(p); pad.position.y = .85; pad.rotation.y = -a; this.scene.add(pad);
+    }
+    // Restrained overhead rig, visible practical lights and an empty training arena.
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(14, .12, .16), steel); bar.position.set(0, 7, -3); this.scene.add(bar);
+    for (const x of [-5, -2.5, 0, 2.5, 5]) { const box = new THREE.Mesh(new THREE.BoxGeometry(.65, .08, .32), new THREE.MeshStandardMaterial({ color: '#ebf0cf', emissive: '#e1e4c6', emissiveIntensity: 3 })); box.position.set(x, 6.9, -3); this.scene.add(box); }
+    for (let i = 0; i < 10; i++) { const bar = new THREE.Mesh(new THREE.BoxGeometry(.05, 4, .05), steel); bar.position.set((i - 4.5) * 2.5, 1.6, -10); this.scene.add(bar); }
+  }
+  impact(event: Extract<CombatEvent, { type: 'hit' }>) {
+    this.physics.hit(event); this.shake = Math.max(this.shake, Math.min(.15, event.strength * .009));
+    if (event.blocked || this.quality !== 'high') return;
+    const count = Math.min(10, Math.floor(event.strength));
+    for (let i = 0; i < count; i++) {
+      const blood = event.zone === 'head' && event.strength > 10 && i === 0;
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(blood ? .015 : .009, 4, 3), new THREE.MeshBasicMaterial({ color: blood ? '#8a3030' : '#e5f0e6', transparent: true, opacity: .75 }));
+      mesh.position.set(event.position.x, event.zone === 'head' ? 1.68 : event.zone === 'body' ? 1.2 : .55, event.position.z); this.scene.add(mesh);
+      this.particles.push({ mesh, velocity: new THREE.Vector3((Math.random() - .5) * 2, .8 + Math.random(), (Math.random() - .5) * 2), life: .35 });
+    }
+  }
+  draw(match: Combat, dt: number, menu: boolean, frozen = false, frameDt = dt) {
+    this.fps += (1 / Math.max(.001, frameDt) - this.fps) * .025;
+    if (!frozen) this.clock += dt;
+    this.rigs.forEach((rig, i) => rig.update(match.fighters[i], match.grapple, this.clock, frozen ? 0 : dt, this.physics.rotation(i), match.result));
+    const [a, b] = match.fighters, middle = new THREE.Vector3((a.position.x + b.position.x) / 2, match.grapple && match.grapple.mode !== 'clinch' ? .45 : .95, (a.position.z + b.position.z) / 2);
+    const distance = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
+    const zoom = menu ? 10.8 : clamp(6.8 + distance * .85, 7.8, 12.8);
+    const desired = new THREE.Vector3(middle.x * .45 + (menu ? 3.6 : .3), menu ? 6.6 : 4.2 + distance * .16, middle.z * .45 + zoom);
+    this.camera.position.lerp(desired, 1 - Math.exp(-dt * 2)); this.look.lerp(middle, 1 - Math.exp(-dt * 4));
+    this.shake *= Math.exp(-dt * 18);
+    this.target.copy(this.look).add(new THREE.Vector3(Math.sin(this.clock * 110) * this.shake, Math.cos(this.clock * 93) * this.shake * .7, 0)); this.camera.lookAt(this.target);
+    for (const panel of this.cagePanels) (panel.material as THREE.MeshStandardMaterial).opacity = panel.position.z > middle.z + .8 ? .065 : .43;
+    for (let i = this.particles.length - 1; i >= 0; i--) { const p = this.particles[i]; p.life -= dt; p.velocity.y -= dt * 5; p.mesh.position.addScaledVector(p.velocity, dt); (p.mesh.material as THREE.MeshBasicMaterial).opacity = p.life * 2; if (p.life <= 0) { this.scene.remove(p.mesh); p.mesh.geometry.dispose(); (p.mesh.material as THREE.Material).dispose(); this.particles.splice(i, 1); } }
+    this.hitMarkers.forEach((m, i) => { const f = match.fighters[i]; m.visible = this.debug && !!f.attack; if (f.attack) { const tip = strikeTip(f, f.attack); m.position.set(tip.x, f.attack.technique.zone === 'head' ? 1.68 : f.attack.technique.zone === 'body' ? 1.2 : .5, tip.z); } });
+    this.renderer.render(this.scene, this.camera);
+  }
+}
