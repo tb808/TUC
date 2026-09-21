@@ -1,83 +1,81 @@
 # TUC — Tyler’s Ultimate Championship
 
-Ein eigenständiger, spielbarer MMA-Prototyp für Desktop-Browser. Ein Oktagon, zwei eigene prozedurale Kämpfer, fünf KI-Stufen und drei Runden à drei Minuten. Keine fremden Spielmodelle oder UFC-Assets.
+TUC ist ein spielbarer MMA-Prototyp für den Desktop-Browser. Steige in den Oktagon, wähle eine von fünf Schwierigkeitsstufen und versuche, deinen Gegner im Stand oder am Boden zu besiegen.
 
-## Spielen
+Ein Kampf geht über bis zu drei Runden à drei Minuten. Du kannst durch KO, TKO, Aufgabe oder nach Punkten gewinnen.
 
-Unter Windows **Start-TUC.cmd** doppelklicken. Das Fenster offen lassen; der Browser öffnet `http://127.0.0.1:5173/`. Chrome oder Edge mit aktiviertem WebGL verwenden. Der Server ist ausschließlich an die lokale Loopback-Adresse gebunden.
+## Spiel starten
 
-Alternativ im Projektordner:
+Unter Windows einfach **Start-TUC.cmd** doppelklicken. Kurz darauf öffnet sich das Spiel automatisch im Browser.
 
-```powershell
-node node_modules/vite/bin/vite.js --host 127.0.0.1
-```
-
-Die Abhängigkeiten sind bereits installiert. Auf einem neuen Rechner werden Node.js 22.12+ oder 24 und `npm install` benötigt. Auf diesem Rechner ist die globale npm-Verknüpfung fehlerhaft; ohne systemweite Änderungen funktioniert:
-
-```powershell
-$env:NODE_USE_SYSTEM_CA='1'
-& 'C:\Program Files\nodejs\node.exe' 'C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js' install
-```
-
-`NODE_USE_SYSTEM_CA` verwendet den Windows-Zertifikatsspeicher; die TLS-Prüfung wird nicht abgeschaltet. Der Build läuft danach vollständig lokal. Die optionalen Webfonts werden von Google Fonts geladen; ohne Verbindung werden Systemschriften verwendet.
+Am besten funktioniert TUC mit einer aktuellen Version von Chrome oder Edge. Das Startfenster muss während des Spielens geöffnet bleiben.
 
 ## Steuerung
 
-| Eingabe | Stand | Boden |
-| --- | --- | --- |
-| WASD | Bewegen: W/S Tiefe, A/D seitlich | Richtung für Übergang |
-| J / K | Jab / Cross; Shift = Haken, Strg = Körper | Ground-and-Pound von oben |
-| U / I | Low-Kick; Strg = Body-Kick, Shift = High-Kick | U = Armbar von oben aus Mount |
-| Leertaste | Hohe Deckung; Strg = tiefe Deckung / Sprawl | Übergang und Submission verteidigen |
-| G | Clinch / Clinch-Kontrolle | Positionswechsel, mit WASD |
-| Shift + G | Takedown, auch aus Clinch | Positionswechsel |
-| R | Clinch lösen | Von oben aufstehen; von unten erst befreien |
-| G halten | — | Armbar vorantreiben |
-| Esc | Pause | Pause |
-| F3 | Debugansicht einschließlich Trefferkugeln | Debugansicht |
+### Im Stand
 
-Schläge benötigen die richtige Distanz. Ausdauer steuert Schlagkraft und Handlungsfähigkeit. Dauernde Deckung verbraucht bei Treffern Kraft. Gegnerische Takedowns werden mit tiefer Deckung vor dem Abschluss abgewehrt.
+| Taste | Aktion |
+| --- | --- |
+| **WASD** | Bewegen |
+| **J / K** | Jab / Cross |
+| **Shift + J / K** | Haken |
+| **Strg + J / K** | Körperschlag |
+| **U / I** | Low-Kick |
+| **Strg + U / I** | Body-Kick |
+| **Shift + U / I** | High-Kick |
+| **Leertaste** | Kopf decken |
+| **Strg + Leertaste** | Körper decken und Takedowns abwehren |
+| **G** | Clinch beginnen oder kontrollieren |
+| **Shift + G** | Takedown versuchen |
+| **R** | Clinch lösen |
 
-Am Boden arbeitet sich der obere Kämpfer mit **G** von Guard über Half Guard und Side Control bis Mount vor. **S + G** gibt als oberer Kämpfer eine Position ab. Der untere Kämpfer verbessert mit **G** seine Position und kann aus Guard einen Sweep ausführen. Leertaste blockiert Übergänge, sofern ausreichend Ausdauer vorhanden ist. In Mount startet **U** die Armbar; danach **G halten**, während der Verteidiger die Leertaste hält. Die Ausdauer entscheidet mit darüber, ob die Aufgabe gelingt.
+### Am Boden
 
-## Enthalten
+| Taste | Aktion |
+| --- | --- |
+| **G** | Position verbessern |
+| **S + G** | Als oberer Kämpfer eine Position abgeben |
+| **J / K** | Ground-and-Pound aus der oberen Position |
+| **Leertaste** | Positionswechsel oder Aufgabeversuch verteidigen |
+| **U** | Aus der Mount eine Armbar ansetzen |
+| **G halten** | Armbar weiter durchziehen |
+| **R** | Aufstehen, wenn es die Position erlaubt |
 
-- Standkampf, Clinch, Takedowns mit Sprawl, vier Bodenpositionen, Sweeps, Ground-and-Pound, Aufstehen, eine Armbar.
-- KO, TKO durch wiederholte Niederschläge, Körperabbruch oder unbeantwortete Bodenschläge, Submission und vereinfachte 10-Punkte-Wertung.
-- Getrennte Kopf-, Körper- und Beinschäden, Gleichgewicht und Ausdauer; Verletzungsfärbung, Schwellung, dezente Blut-/Schweißpartikel.
-- Prozedurale Animationen, gewichtete Trefferreaktionen, kurze Trefferpausen, Kameraimpuls, synthetisierte Web-Audio-Treffer und Glocke.
-- Richtungsabhängige Beinarbeit mit aufgesetzten Füßen, weich überblendete Gelenkbewegungen, Hüftrotation und vorbereitete Tritte. Schläge und Trefferprüfung teilen eine Kontaktkurve; Rückstoß wirkt über mehrere Simulationsschritte.
-- Durchgehende modellierte Körperoberflächen, Hautporen, Stoffstruktur, Handschuh- und Gesichtsdetails, feinere Schatten, Umgebungsreflexionen und eine detailliertere Arena mit Tribünen und Ringside-Ausstattung.
-- Gedämpfte Rapier-Gelenke für physikalische Oberkörperreaktionen. Die autoritative Trefferlogik und Oktagongrenzen sind deterministisch und vom Renderer getrennt.
+Mit **Esc** pausierst du den Kampf.
 
-Die Kämpfer bleiben prozedurale Modelle; fotorealistische Scans und Motion-Capture-Clips sind nicht enthalten. Für eine reproduzierbare visuelle Prüfung erzeugt `node scripts/review-animation.mjs` zehn Kampfsituationen unter `output/playwright/animation/`. Auf CPU-basierten WebGL-Testsystemen führt `node node_modules/@playwright/test/cli.js test --config playwright.software.config.ts --workers=1` dieselben Browsertests mit reduzierter Renderauflösung aus.
-- Fünf KI-Stufen mit identischen Körperwerten; Unterschiede betreffen Reaktionszeit, Deckung, Kombinationen, Distanz, Ausdauer und Grappling. Die KI liest nur sichtbaren Kampfzustand, keine zukünftigen Eingaben.
-- Pause bei Fokusverlust, Neustart, Revanchieren, Tastaturhilfe, zwei Grafikstufen, minimale Statusanzeige und Entwicklerdiagnose.
+## So gewinnst du
 
-## Architektur und Erweiterung
+- **KO:** Dein Gegner kann nach einem schweren Treffer nicht weiterkämpfen.
+- **TKO:** Der Kampf wird nach mehreren Niederschlägen, schweren Körpertreffern oder unbeantworteten Schlägen am Boden beendet.
+- **Aufgabe:** Du bringst deinen Gegner mit einer Armbar zum Abklopfen.
+- **Punktsieg:** Läuft der Kampf über alle Runden, entscheiden Wirkung, Aktivität und Kontrolle.
 
-`src/game` enthält die unabhängige 60-Hz-Simulation, Regeln, Techniken, Zustände, KI, Audio und Eingaben. `src/render` erzeugt Arena, Kamera, Kämpfer und ergänzende Physik. `src/main.ts` verbindet Oberfläche und Spielschleife. Neue Techniken und KI-Profile werden in `src/game/config.ts` konfiguriert.
+## Tipps für den ersten Kampf
 
-Die Kämpfer besitzen ein hierarchisches Bone-Rig. `FighterRig.loadGLB(url)` tauscht das prozedurale Modell nach erfolgreicher Prüfung gegen ein kompatibles eigenes GLB aus. Der Vertrag: Meter als Einheit, +Z nach vorn, Bones `hips`, `spine`, `head`, `leftUpperArm`, `rightUpperArm`, `leftForeArm`, `rightForeArm`, `leftThigh`, `rightThigh`, `leftShin`, `rightShin`, `leftFoot`, `rightFoot`. Lokale Ruheachsen entsprechen dem Prototyp: Arme/Beine nach -Y, Oberkörper +Y. Nicht passende GLBs werden abgelehnt; das sichtbare Ersatzmodell bleibt erhalten. Materialien, Texturen und Geometrien müssen mitgeliefert werden. Fremde Rigs benötigen Retargeting.
+- Beginne auf der Schwierigkeitsstufe **Einsteiger**, um Abstand und Timing kennenzulernen.
+- Schläge treffen nur aus der passenden Entfernung. Bewege dich nach einer Kombination wieder aus der Reichweite.
+- Behalte deine Ausdauer im Auge. Angriffe, Deckung und Bodenkampf kosten Kraft.
+- Eine dauerhafte Deckung schützt dich nicht kostenlos: Treffer auf die Deckung verbrauchen ebenfalls Ausdauer.
+- Wehre einen Takedown rechtzeitig mit **Strg + Leertaste** ab.
+- Am Boden führt **G** als oberer Kämpfer von Guard über Half Guard und Side Control bis in die Mount.
+- Aus der Mount kannst du mit **U** eine Armbar starten und sie anschließend mit gehaltenem **G** beenden.
 
-Nur im Entwicklungsserver existiert `window.__TUC__` für automatisierte Browserprüfungen. Der Produktionsbuild entfernt diesen Testzugang. Es gibt keine Netzwerk-Spiel-API und keine Konten oder Serverdaten.
+## Was ist enthalten?
 
-## Prüfen und bauen
+- Fünf Schwierigkeitsstufen von Einsteiger bis Champion
+- Standkampf mit Schlägen, Tritten, Deckung und Ausdauer
+- Clinch, Takedowns und Takedown-Abwehr
+- Bodenkampf mit mehreren Positionen, Sweeps und Ground-and-Pound
+- KO, TKO, Aufgabe und Punktrichterentscheidung
+- Drei Runden, Pausenfunktion, Neustart und Revanche
+- Zwei Grafikstufen für unterschiedliche Rechner
 
-```powershell
-node node_modules/typescript/bin/tsc --noEmit
-node node_modules/vitest/vitest.mjs run
-node node_modules/playwright/cli.js install chromium
-node node_modules/playwright/cli.js test
-node node_modules/vite/bin/vite.js build
-```
+## Gut zu wissen
 
-Alternativ mit funktionierendem npm: `npm test`, `npm run test:e2e`, `npm run build`. Der Build landet in `dist/`; lokal prüfen mit `node node_modules/vite/bin/vite.js preview`.
+TUC ist ein eigenständiger Prototyp. Kämpfer und Bewegungen wurden speziell für das Spiel erstellt und sind bewusst einfacher gehalten als in einer großen kommerziellen Sportsimulation.
 
-Tests decken Trefferzeitfenster und Reichweite, Verteidigung, Ressourcen, erlaubte Aktionen, Arena, Pause, Runden, Wertung, sämtliche Kampfenden, Grappling-Ablauf sowie seeded KI-Vergleiche ab. Browserprüfungen bedienen das Menü, kämpfen per Tastatur, pausieren, spielen einen beschleunigten vollständigen Kampf, starten eine Revanche und schließen den Grappling-Loop per Tastatur mit einer Submission ab. Screenshots liegen in `output/playwright/`.
+Diese Version bietet eine Arena und Kämpfe gegen den Computer. Multiplayer, Karriere-Modus, Gamepad- und Touch-Steuerung sind derzeit nicht enthalten.
 
-## Prototypgrenzen
+## Für Entwickler
 
-Die eigenen Kämpfer und Bewegungen sind bewusst ein funktionaler Prototyp, keine fotorealistischen Modelle oder Motion-Capture-Animationen. Treffer verwenden vereinfachte Körpervolumen statt einer vollphysikalischen Hautsimulation; Bodenkampf arbeitet mit diskreten Positionen. Die Punktrichterwertung ist eine transparente Spielregel, kein vollständiger offizieller MMA-Regelkatalog.
-
-60 FPS bei 1080p sind das Ziel, keine Hardwaregarantie. Hohe Qualität nutzt Schatten, höhere Auflösung und Trefferpartikel; niedrig reduziert diese Last. F3 zeigt die tatsächliche Bildrate. Keine zusätzlichen Arenen, Karriere, Multiplayer, Gamepad oder Touchsteuerung in dieser Version.
+Wer das Projekt bearbeiten möchte, benötigt Node.js. Nach `npm install` lässt sich das Spiel mit `npm run dev` starten. Tests und Produktions-Build stehen über `npm test` und `npm run build` zur Verfügung.
