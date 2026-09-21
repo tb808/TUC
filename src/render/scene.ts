@@ -4,6 +4,10 @@ import type { CombatEvent } from '../game/types';
 import { FighterRig } from './fighter';
 import { ImpactPhysics } from './physics';
 import { batchRigidParts } from './batch';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { surfaceTexture } from './materials';
+import { arenaDetails } from './arenaDetails';
+import { smooth } from '../game/motion';
 
 function canvasTexture(width: number, height: number, draw: (c: CanvasRenderingContext2D) => void) { const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height; const c = canvas.getContext('2d')!; draw(c); const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture; }
 export class ArenaView {
@@ -12,40 +16,61 @@ export class ArenaView {
   private light: THREE.DirectionalLight; private shake = 0; private clock = 0; private hitMarkers: THREE.Mesh[] = [];
   private particles: { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }[] = [];
   private cagePanels: THREE.Mesh[] = []; private target = new THREE.Vector3(0, .85, 0); private look = this.target.clone();
+  private contactShadows: THREE.Mesh[] = [];
   fps = 60; quality = 'high';
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.12; container.appendChild(this.renderer.domElement);
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1; container.appendChild(this.renderer.domElement);
     this.renderer.domElement.setAttribute('aria-label', '3D-Oktagon mit zwei MMA-Kämpfern');
     this.renderer.domElement.tabIndex = 0;
-    this.scene.background = new THREE.Color('#101613'); this.scene.fog = new THREE.FogExp2('#101613', .038);
-    this.scene.add(new THREE.HemisphereLight('#c9e1d9', '#48463a', 2.1));
-    this.light = new THREE.DirectionalLight('#fff0d9', 4.1); this.light.position.set(-3, 9, 4); this.light.castShadow = true;
-    this.light.shadow.mapSize.set(2048, 2048); this.light.shadow.camera.left = -7; this.light.shadow.camera.right = 7; this.light.shadow.camera.top = 7; this.light.shadow.camera.bottom = -7; this.light.shadow.normalBias = .035; this.scene.add(this.light);
-    const rim = new THREE.DirectionalLight('#a7cfeb', 2); rim.position.set(3, 5, -5); this.scene.add(rim);
-    this.buildArena(); batchRigidParts(this.scene); this.rigs.forEach(r => this.scene.add(r.root));
+    this.scene.background = new THREE.Color('#0c111b'); this.scene.fog = new THREE.FogExp2('#0c111b', .025);
+    const environment = new RoomEnvironment(), pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(environment, .04).texture; this.scene.environmentIntensity = .32;
+    environment.dispose(); pmrem.dispose();
+    this.scene.add(new THREE.HemisphereLight('#d3e1f3', '#4d4540', .85));
+    this.light = new THREE.DirectionalLight('#fff0e2', 3.2); this.light.position.set(-3.5, 8, 2); this.light.castShadow = true;
+    this.light.shadow.mapSize.set(2048, 2048); this.light.shadow.camera.left = -6; this.light.shadow.camera.right = 6; this.light.shadow.camera.top = 6; this.light.shadow.camera.bottom = -6; this.light.shadow.camera.near = .5; this.light.shadow.camera.far = 20; this.light.shadow.normalBias = .018; this.light.shadow.bias = -.00012; this.light.shadow.radius = 3; this.scene.add(this.light);
+    const rim = new THREE.DirectionalLight('#c3d9ff', 2.4); rim.position.set(3, 5, -5); this.scene.add(rim);
+    const fill = new THREE.DirectionalLight('#e1e9f3', .65); fill.position.set(3, 3, 6); this.scene.add(fill);
+    this.buildArena(); arenaDetails(this.scene); batchRigidParts(this.scene); this.rigs.forEach(r => this.scene.add(r.root));
+    const shadowTexture = canvasTexture(128, 128, c => {
+      const gradient = c.createRadialGradient(64, 64, 2, 64, 64, 64); gradient.addColorStop(0, '#0000008c'); gradient.addColorStop(.38, '#0000004d'); gradient.addColorStop(1, '#00000000'); c.fillStyle = gradient; c.fillRect(0, 0, 128, 128);
+    });
+    for (let i = 0; i < 2; i++) {
+      const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.05, .8), new THREE.MeshBasicMaterial({ map: shadowTexture, transparent: true, depthWrite: false, opacity: .6 }));
+      shadow.rotation.x = -Math.PI / 2; shadow.position.y = -.009; this.scene.add(shadow); this.contactShadows.push(shadow);
+    }
     for (let i = 0; i < 2; i++) { const marker = new THREE.Mesh(new THREE.SphereGeometry(.2, 12, 8), new THREE.MeshBasicMaterial({ color: i ? '#ff736d' : '#72caff', wireframe: true, depthTest: false })); marker.visible = false; this.scene.add(marker); this.hitMarkers.push(marker); }
     this.camera.position.set(0, 5.6, 9.9);
     const resize = () => { this.camera.aspect = container.clientWidth / container.clientHeight; this.camera.updateProjectionMatrix(); this.renderer.setSize(container.clientWidth, container.clientHeight); };
     new ResizeObserver(resize).observe(container); resize();
   }
   async init() { await this.physics.init(); }
-  setQuality(quality: string) { this.quality = quality; this.renderer.setPixelRatio(Math.min(devicePixelRatio, quality === 'high' ? 1.5 : .7)); this.renderer.shadowMap.enabled = quality === 'high'; }
+  setQuality(quality: string) { this.quality = quality; this.renderer.setPixelRatio(Math.min(devicePixelRatio, quality === 'high' ? 1.75 : .8)); this.renderer.shadowMap.enabled = quality === 'high'; }
   private buildArena() {
     const dark = new THREE.MeshStandardMaterial({ color: '#1c2421', roughness: .82, metalness: .2 });
     const steel = new THREE.MeshStandardMaterial({ color: '#39443d', roughness: .46, metalness: .65 });
     const platform = new THREE.Mesh(new THREE.CylinderGeometry(5.05, 5.15, .34, 8), dark); platform.rotation.y = Math.PI / 8; platform.position.y = -.2; platform.receiveShadow = true; this.scene.add(platform);
     const matTexture = canvasTexture(2048, 2048, c => {
-      c.fillStyle = '#b4bcac'; c.fillRect(0, 0, 2048, 2048);
+      c.fillStyle = '#b0b6b8'; c.fillRect(0, 0, 2048, 2048);
       let seed = 9; for (let i = 0; i < 45000; i++) { seed = (seed * 1664525 + 1013904223) >>> 0; const x = seed % 2048; seed = (seed * 1664525 + 1013904223) >>> 0; c.fillStyle = i % 2 ? '#ffffff06' : '#00000009'; c.fillRect(x, seed % 2048, 2, 2); }
       c.strokeStyle = '#677665'; c.lineWidth = 7; c.beginPath(); for (let i = 0; i <= 8; i++) { const a = Math.PI / 8 + i * Math.PI / 4; const x = 1024 + Math.cos(a) * 825, y = 1024 + Math.sin(a) * 825; i ? c.lineTo(x, y) : c.moveTo(x, y); } c.stroke();
       c.save(); c.translate(1024, 1050); c.rotate(-Math.PI / 2); c.textAlign = 'center'; c.fillStyle = '#344a3d'; c.font = 'italic 900 350px Arial'; c.fillText('TUC', 0, 50); c.font = 'bold 29px Arial'; c.fillText('TYLER’S ULTIMATE CHAMPIONSHIP', 0, 115); c.fillStyle = '#738573'; c.font = 'bold 28px Arial'; c.fillText('THE PROVING GROUND', 0, 180); c.restore();
       c.textAlign = 'center'; c.fillStyle = '#41594c'; c.font = 'bold 46px Arial'; c.fillText('EARN YOUR PLACE.', 1024, 380); c.fillText('T U C  /  0 0 1', 1024, 1710);
       c.fillStyle = '#3c6a94'; c.fillRect(220, 900, 22, 240); c.fillStyle = '#a04848'; c.fillRect(1810, 900, 22, 240);
+      c.strokeStyle = '#30374010'; c.lineWidth = 1;
+      for (let y = 120; y < 2048; y += 256) { c.beginPath(); c.moveTo(0, y); c.lineTo(2048, y); c.stroke(); }
+      for (let i = 0; i < 240; i++) {
+        seed = (seed * 1664525 + 1013904223) >>> 0; const x = seed % 1850 + 99;
+        seed = (seed * 1664525 + 1013904223) >>> 0; const y = seed % 1850 + 99;
+        c.save(); c.translate(x, y); c.rotate(i * 2.39); c.strokeStyle = '#333a4210'; c.lineWidth = 2;
+        c.beginPath(); c.ellipse(0, 0, 7 + i % 12, 3, 0, 0, Math.PI); c.stroke(); c.restore();
+      }
     });
     matTexture.anisotropy = 8;
-    const mat = new THREE.Mesh(new THREE.CircleGeometry(5.03, 8), new THREE.MeshStandardMaterial({ map: matTexture, roughness: .92 })); mat.rotation.x = -Math.PI / 2; mat.rotation.z = Math.PI / 8; mat.position.y = -.015; mat.receiveShadow = true; this.scene.add(mat);
+    const weave = surfaceTexture('canvas'); weave.anisotropy = 8;
+    const mat = new THREE.Mesh(new THREE.CircleGeometry(5.03, 8), new THREE.MeshStandardMaterial({ map: matTexture, roughness: .86, bumpMap: weave, bumpScale: .002 })); mat.rotation.x = -Math.PI / 2; mat.rotation.z = Math.PI / 8; mat.position.y = -.015; mat.receiveShadow = true; this.scene.add(mat);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: '#111a15', roughness: .92 })); floor.rotation.x = -Math.PI / 2; floor.position.y = -.39; floor.receiveShadow = true; this.scene.add(floor);
     const fenceTex = canvasTexture(64, 64, c => { c.clearRect(0, 0, 64, 64); c.strokeStyle = '#5f6b60'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, 32); c.lineTo(32, 0); c.lineTo(64, 32); c.lineTo(32, 64); c.closePath(); c.stroke(); }); fenceTex.wrapS = fenceTex.wrapT = THREE.RepeatWrapping; fenceTex.repeat.set(19, 11);
     for (let i = 0; i < 8; i++) {
@@ -76,11 +101,19 @@ export class ArenaView {
   draw(match: Combat, dt: number, menu: boolean, frozen = false, frameDt = dt) {
     this.fps += (1 / Math.max(.001, frameDt) - this.fps) * .025;
     if (!frozen) this.clock += dt;
-    this.rigs.forEach((rig, i) => rig.update(match.fighters[i], match.grapple, this.clock, frozen ? 0 : dt, this.physics.rotation(i), match.result));
+    this.rigs.forEach((rig, i) => {
+      rig.update(match.fighters[i], match.grapple, this.clock, frozen ? 0 : dt, this.physics.rotation(i), match.result);
+      this.contactShadows[i].position.x = match.fighters[i].position.x; this.contactShadows[i].position.z = match.fighters[i].position.z;
+      this.contactShadows[i].scale.setScalar(match.grapple?.mode === 'ground' ? 1.5 : 1);
+    });
+    if (!frozen && match.grapple?.mode === 'submission') {
+      const top = match.grapple.top;
+      this.rigs[top].holdSubmission(this.rigs[top ? 0 : 1], smooth(match.grapple.timer / .4));
+    }
     const [a, b] = match.fighters, middle = new THREE.Vector3((a.position.x + b.position.x) / 2, match.grapple && match.grapple.mode !== 'clinch' ? .45 : .95, (a.position.z + b.position.z) / 2);
     const distance = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
-    const zoom = menu ? 10.8 : clamp(6.8 + distance * .85, 7.8, 12.8);
-    const desired = new THREE.Vector3(middle.x * .45 + (menu ? 3.6 : .3), menu ? 6.6 : 4.2 + distance * .16, middle.z * .45 + zoom);
+    const zoom = menu ? 10.8 : clamp(5.3 + distance * .7, 6.2, 12.8);
+    const desired = new THREE.Vector3(middle.x * .65 + (menu ? 3.6 : .3), menu ? 6.6 : 2.9 + distance * .13, middle.z * .65 + zoom);
     this.camera.position.lerp(desired, 1 - Math.exp(-dt * 2)); this.look.lerp(middle, 1 - Math.exp(-dt * 4));
     this.shake *= Math.exp(-dt * 18);
     this.target.copy(this.look).add(new THREE.Vector3(Math.sin(this.clock * 110) * this.shake, Math.cos(this.clock * 93) * this.shake * .7, 0)); this.camera.lookAt(this.target);

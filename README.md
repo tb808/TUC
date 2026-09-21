@@ -29,7 +29,6 @@ $env:NODE_USE_SYSTEM_CA='1'
 | J / K | Jab / Cross; Shift = Haken, Strg = Körper | Ground-and-Pound von oben |
 | U / I | Low-Kick; Strg = Body-Kick, Shift = High-Kick | U = Armbar von oben aus Mount |
 | Leertaste | Hohe Deckung; Strg = tiefe Deckung / Sprawl | Übergang und Submission verteidigen |
-| A / D + Deckung | Seitliches Ausweichen | — |
 | G | Clinch / Clinch-Kontrolle | Positionswechsel, mit WASD |
 | Shift + G | Takedown, auch aus Clinch | Positionswechsel |
 | R | Clinch lösen | Von oben aufstehen; von unten erst befreien |
@@ -47,7 +46,11 @@ Am Boden arbeitet sich der obere Kämpfer mit **G** von Guard über Half Guard u
 - KO, TKO durch wiederholte Niederschläge, Körperabbruch oder unbeantwortete Bodenschläge, Submission und vereinfachte 10-Punkte-Wertung.
 - Getrennte Kopf-, Körper- und Beinschäden, Gleichgewicht und Ausdauer; Verletzungsfärbung, Schwellung, dezente Blut-/Schweißpartikel.
 - Prozedurale Animationen, gewichtete Trefferreaktionen, kurze Trefferpausen, Kameraimpuls, synthetisierte Web-Audio-Treffer und Glocke.
+- Richtungsabhängige Beinarbeit mit aufgesetzten Füßen, weich überblendete Gelenkbewegungen, Hüftrotation und vorbereitete Tritte. Schläge und Trefferprüfung teilen eine Kontaktkurve; Rückstoß wirkt über mehrere Simulationsschritte.
+- Durchgehende modellierte Körperoberflächen, Hautporen, Stoffstruktur, Handschuh- und Gesichtsdetails, feinere Schatten, Umgebungsreflexionen und eine detailliertere Arena mit Tribünen und Ringside-Ausstattung.
 - Gedämpfte Rapier-Gelenke für physikalische Oberkörperreaktionen. Die autoritative Trefferlogik und Oktagongrenzen sind deterministisch und vom Renderer getrennt.
+
+Die Kämpfer bleiben prozedurale Modelle; fotorealistische Scans und Motion-Capture-Clips sind nicht enthalten. Für eine reproduzierbare visuelle Prüfung erzeugt `node scripts/review-animation.mjs` zehn Kampfsituationen unter `output/playwright/animation/`. Auf CPU-basierten WebGL-Testsystemen führt `node node_modules/@playwright/test/cli.js test --config playwright.software.config.ts --workers=1` dieselben Browsertests mit reduzierter Renderauflösung aus.
 - Fünf KI-Stufen mit identischen Körperwerten; Unterschiede betreffen Reaktionszeit, Deckung, Kombinationen, Distanz, Ausdauer und Grappling. Die KI liest nur sichtbaren Kampfzustand, keine zukünftigen Eingaben.
 - Pause bei Fokusverlust, Neustart, Revanchieren, Tastaturhilfe, zwei Grafikstufen, minimale Statusanzeige und Entwicklerdiagnose.
 
@@ -55,7 +58,7 @@ Am Boden arbeitet sich der obere Kämpfer mit **G** von Guard über Half Guard u
 
 `src/game` enthält die unabhängige 60-Hz-Simulation, Regeln, Techniken, Zustände, KI, Audio und Eingaben. `src/render` erzeugt Arena, Kamera, Kämpfer und ergänzende Physik. `src/main.ts` verbindet Oberfläche und Spielschleife. Neue Techniken und KI-Profile werden in `src/game/config.ts` konfiguriert.
 
-Die Kämpfer besitzen ein hierarchisches Bone-Rig. `FighterRig.loadGLB(url)` tauscht das prozedurale Modell nach erfolgreicher Prüfung gegen ein kompatibles eigenes GLB aus. Der Vertrag: Meter als Einheit, +Z nach vorn, Bones `hips`, `spine`, `head`, `leftUpperArm`, `rightUpperArm`, `leftForeArm`, `rightForeArm`, `leftThigh`, `rightThigh`, `leftShin`, `rightShin`. Lokale Ruheachsen entsprechen dem Prototyp: Arme/Beine nach -Y, Oberkörper +Y. Nicht passende GLBs werden abgelehnt; das sichtbare Ersatzmodell bleibt erhalten. Materialien, Texturen und Geometrien müssen mitgeliefert werden. Fremde Rigs benötigen Retargeting.
+Die Kämpfer besitzen ein hierarchisches Bone-Rig. `FighterRig.loadGLB(url)` tauscht das prozedurale Modell nach erfolgreicher Prüfung gegen ein kompatibles eigenes GLB aus. Der Vertrag: Meter als Einheit, +Z nach vorn, Bones `hips`, `spine`, `head`, `leftUpperArm`, `rightUpperArm`, `leftForeArm`, `rightForeArm`, `leftThigh`, `rightThigh`, `leftShin`, `rightShin`, `leftFoot`, `rightFoot`. Lokale Ruheachsen entsprechen dem Prototyp: Arme/Beine nach -Y, Oberkörper +Y. Nicht passende GLBs werden abgelehnt; das sichtbare Ersatzmodell bleibt erhalten. Materialien, Texturen und Geometrien müssen mitgeliefert werden. Fremde Rigs benötigen Retargeting.
 
 Nur im Entwicklungsserver existiert `window.__TUC__` für automatisierte Browserprüfungen. Der Produktionsbuild entfernt diesen Testzugang. Es gibt keine Netzwerk-Spiel-API und keine Konten oder Serverdaten.
 

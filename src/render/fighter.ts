@@ -3,53 +3,86 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clamp } from '../game/combat';
 import type { Fighter, Grapple, MatchResult } from '../game/types';
 import { batchRigidParts } from './batch';
+import { strikeLocal, strikeMotion, smooth } from '../game/motion';
+import { fabricMaterial, skinMaterial } from './materials';
+import { solveLimb } from './ik';
 
 export interface FighterVisual { root: THREE.Group; update(fighter: Fighter, grapple: Grapple | null, time: number, dt: number, impact: THREE.Quaternion, result: MatchResult | null): void }
-const sphere = new THREE.SphereGeometry(1, 20, 16);
+const sphere = new THREE.SphereGeometry(1, 28, 20);
 function shape(parent: THREE.Object3D, material: THREE.Material, xyz: number[], scale: number[]) {
   const mesh = new THREE.Mesh(sphere, material); mesh.position.set(xyz[0], xyz[1], xyz[2]); mesh.scale.set(scale[0], scale[1], scale[2]); mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh;
 }
 function bone(parent: THREE.Object3D, name: string, x: number, y: number, z: number) { const b = new THREE.Bone(); b.name = name; b.position.set(x, y, z); parent.add(b); return b; }
 function contour(parent: THREE.Object3D, material: THREE.Material, points: number[][], depth: number) {
-  const geometry = new THREE.LatheGeometry(points.map(([y, r]) => new THREE.Vector2(r, y)), 24);
-  const mesh = new THREE.Mesh(geometry, material); mesh.scale.z = depth; mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh;
+  const curve = new THREE.SplineCurve(points.map(([y, r]) => new THREE.Vector2(r, y)));
+  const geometry = new THREE.LatheGeometry(curve.getPoints(points.length * 3).map(p => new THREE.Vector2(Math.max(0, p.x), p.y)), 32);
+  geometry.scale(1, 1, depth);
+  if (parent.name === 'spine') {
+    const vertices = geometry.getAttribute('position');
+    const bump = (x: number, y: number, cx: number, cy: number, wx: number, wy: number) => Math.exp(-(((x - cx) / wx) ** 2) - ((y - cy) / wy) ** 2);
+    for (let i = 0; i < vertices.count; i++) {
+      const x = vertices.getX(i), y = vertices.getY(i), z = vertices.getZ(i);
+      if (z <= 0) continue;
+      let sculpt = 0;
+      for (const s of [-1, 1]) {
+        sculpt += .012 * bump(x, y, s * .105, .325, .105, .065);
+        for (let row = 0; row < 3; row++) sculpt += .0035 * bump(x, y, s * .045, .2 - row * .061, .034, .025);
+        sculpt += .004 * bump(x, y, s * .11, .422, .09, .009);
+      }
+      vertices.setZ(i, z + sculpt * Math.min(1, z / .08));
+    }
+    geometry.computeVertexNormals();
+  }
+  const mesh = new THREE.Mesh(geometry, material); mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh;
 }
 export class FighterRig implements FighterVisual {
   root = new THREE.Group(); hips: THREE.Bone; spine: THREE.Bone; head: THREE.Bone;
-  arms: THREE.Bone[] = []; forearms: THREE.Bone[] = []; legs: THREE.Bone[] = []; shins: THREE.Bone[] = []; skeleton: THREE.Skeleton;
-  private skin: THREE.MeshStandardMaterial; private skinBase: THREE.Color; private bruise: THREE.Mesh; private cut: THREE.Mesh; private model: THREE.Group | null = null;
+  arms: THREE.Bone[] = []; forearms: THREE.Bone[] = []; legs: THREE.Bone[] = []; shins: THREE.Bone[] = []; feet: THREE.Bone[] = []; skeleton: THREE.Skeleton;
+  private skin: THREE.MeshPhysicalMaterial; private skinBase: THREE.Color; private bruise: THREE.Mesh; private cut: THREE.Mesh; private model: THREE.Group | null = null;
   private mapped = new Map<string, THREE.Object3D>(); private gait = 0;
+  private poses: THREE.Quaternion[] = []; private hipPosition = new THREE.Vector3(); private initialized = false;
+  private feetPlanted = false; private stepSide = 0; private stepTime = 1;
+  private footTargets = [new THREE.Vector3(), new THREE.Vector3()];
+  private stepFrom = new THREE.Vector3(); private stepTo = new THREE.Vector3();
+  private previousRoot = new THREE.Vector3();
   constructor(id: number) {
-    this.skin = new THREE.MeshStandardMaterial({ color: id ? '#a87558' : '#c58b68', roughness: .66, metalness: .015 }); this.skinBase = this.skin.color.clone();
-    const shorts = new THREE.MeshStandardMaterial({ color: id ? '#a92234' : '#215ba2', roughness: .8 });
+    this.skin = skinMaterial(id ? '#976448' : '#ba8263'); this.skinBase = this.skin.color.clone();
+    const shorts = fabricMaterial(id ? '#851e30' : '#153f77');
     const seam = new THREE.MeshStandardMaterial({ color: '#e2ddd0', roughness: .8 });
-    const gloves = new THREE.MeshStandardMaterial({ color: '#161b1a', roughness: .48 });
+    const gloves = new THREE.MeshPhysicalMaterial({ color: '#171a1d', roughness: .43, clearcoat: .28, clearcoatRoughness: .45 });
     const wrap = new THREE.MeshStandardMaterial({ color: id ? '#e33d44' : '#428fe0', roughness: .8 });
     const hair = new THREE.MeshStandardMaterial({ color: '#201914', roughness: .98 });
     this.hips = bone(this.root, 'hips', 0, .98, 0);
-    shape(this.hips, shorts, [0, -.055, 0], [.225, .2, .155]);
-    shape(this.hips, gloves, [0, .08, 0], [.224, .045, .157]);
+    this.hips.rotation.order = 'YXZ';
+    contour(this.hips, shorts, [[-.22,0],[-.2,.155],[-.12,.204],[.03,.193],[.07,.182],[.075,0]], .73);
+    shape(this.hips, gloves, [0, .066, 0], [.186, .025, .137]);
     this.spine = bone(this.hips, 'spine', 0, .07, 0);
     // A continuous tapered torso avoids the separated spherical-mannequin silhouette.
     contour(this.spine, this.skin, [[-.08,0],[-.07,.15],[0,.185],[.08,.191],[.16,.211],[.25,.246],[.34,.263],[.39,.253],[.435,.2],[.47,.103],[.5,.078],[.51,0]], .59);
     for (const s of [-1, 1]) {
-      shape(this.spine, this.skin, [s * .111, .327, .091], [.121, .085, .06]);
-      shape(this.spine, this.skin, [s * .068, .17, .104], [.061, .097, .022]);
-      shape(this.spine, this.skin, [s * .07, .04, .1], [.059, .076, .018]);
+      shape(this.spine, new THREE.MeshStandardMaterial({ color: id ? '#76503e' : '#976451', roughness: .78 }), [s * .13, .311, .14], [.008, .006, .002]);
     }
     shape(this.spine, this.skin, [0, .493, 0], [.079, .1, .077]);
     this.head = bone(this.spine, 'head', 0, .623, .018);
-    shape(this.head, this.skin, [0, .025, 0], [.116, .155, .111]);
-    shape(this.head, this.skin, [0, -.07, .027], [.09, .087, .092]);
-    shape(this.head, hair, [0, .102, -.015], [.117, .085, .105]);
-    shape(this.head, this.skin, [0, .005, .111], [.029, .047, .036]);
+    contour(this.head, this.skin, [[-.143,0],[-.131,.042],[-.115,.062],[-.082,.086],[-.032,.098],[.028,.104],[.095,.091],[.145,.053],[.168,0]], 1.02);
+    const scalp = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 16, 0, Math.PI * 2, 0, id ? 1.12 : 1.28), hair);
+    scalp.position.set(0, .025, 0); scalp.scale.set(.111, .151, .113); scalp.castShadow = true; this.head.add(scalp);
+    shape(this.head, this.skin, [0, .004, .101], [.019, .042, .032]);
+    shape(this.head, this.skin, [0, -.018, .123], [.026, .015, .014]);
     const eye = new THREE.MeshStandardMaterial({ color: '#151c19', roughness: .36 });
+    const whites = new THREE.MeshStandardMaterial({ color: '#b8b5a8', roughness: .42 });
+    const iris = new THREE.MeshStandardMaterial({ color: id ? '#433d2e' : '#46636a', roughness: .26 });
     for (const s of [-1, 1]) {
-      shape(this.head, this.skin, [s * .117, .005, 0], [.022, .04, .028]);
-      shape(this.head, eye, [s * .045, .03, .099], [.024, .011, .012]);
-      shape(this.head, hair, [s * .045, .052, .094], [.033, .009, .015]);
+      shape(this.head, this.skin, [s * .105, .001, -.005], [.016, .031, .021]);
+      shape(this.head, this.skin, [s * .049, -.008, .074], [.039, .027, .019]);
+      shape(this.head, whites, [s * .041, .027, .096], [.019, .008, .007]);
+      shape(this.head, iris, [s * .041, .027, .102], [.006, .0065, .002]);
+      shape(this.head, eye, [s * .041, .027, .104], [.0028, .004, .001]);
+      shape(this.head, this.skin, [s * .041, .041, .094], [.027, .014, .013]);
+      shape(this.head, hair, [s * .041, .05, .096], [.029, .005, .01]);
+      shape(this.head, eye, [s * .012, -.026, .125], [.004, .0025, .002]);
     }
-    shape(this.head, hair, [0, -.092, .072], [.074, .034, .022]);
+    if (id) shape(this.head, hair, [0, -.097, .059], [.073, .026, .026]);
     shape(this.head, new THREE.MeshStandardMaterial({ color: '#694b40' }), [0, -.049, .106], [.037, .007, .009]);
     this.bruise = shape(this.head, new THREE.MeshStandardMaterial({ color: '#7d3541', transparent: true, opacity: 0, roughness: .7 }), [.072, .013, .092], [.034, .027, .012]);
     this.cut = shape(this.head, new THREE.MeshStandardMaterial({ color: '#81211e', transparent: true, opacity: 0 }), [-.048, .07, .099], [.032, .006, .009]);
@@ -60,21 +93,31 @@ export class FighterRig implements FighterVisual {
       const lower = bone(upper, i ? 'rightForeArm' : 'leftForeArm', 0, -.3, 0);
       contour(lower, this.skin, [[-.251,0],[-.235,.043],[-.19,.046],[-.11,.061],[-.04,.063],[.008,.046],[.027,0]], .93);
       shape(lower, wrap, [0, -.226, 0], [.059, .05, .058]);
-      shape(lower, gloves, [0, -.289, .008], [.079, .078, .071]);
+      shape(lower, gloves, [0, -.289, .008], [.068, .069, .064]);
       shape(lower, wrap, [0, -.29, .069], [.047, .025, .01]);
+      for (let finger = 0; finger < 4; finger++) {
+        const x = (finger - 1.5) * .025;
+        shape(lower, gloves, [x, -.323, .026], [.017, .022, .044]);
+        shape(lower, this.skin, [x, -.345, .019], [.012, .018, .023]);
+      }
+      shape(lower, this.skin, [s * .062, -.285, .026], [.022, .033, .022]);
       this.arms.push(upper); this.forearms.push(lower);
       const thigh = bone(this.hips, i ? 'rightThigh' : 'leftThigh', s * .115, -.11, 0);
-      contour(thigh, shorts, [[-.223,0],[-.221,.105],[-.2,.112],[-.07,.125],[.012,.11],[.032,0]], 1.09);
-      shape(thigh, this.skin, [0, -.24, 0], [.102, .186, .102]);
+      contour(thigh, shorts, [[-.224,.095],[-.22,.098],[-.18,.108],[-.07,.119],[.012,.107],[.032,0]], 1.06);
+      contour(thigh, this.skin, [[-.43,0],[-.41,.061],[-.36,.07],[-.26,.089],[-.17,.101],[-.07,.108],[0,0]], 1.04);
       shape(thigh, seam, [s * .119, -.125, .005], [.004, .072, .009]);
       const shin = bone(thigh, i ? 'rightShin' : 'leftShin', 0, -.405, 0);
-      shape(shin, this.skin, [0, -.038, .014], [.07, .071, .07]);
-      shape(shin, this.skin, [0, -.193, -.011], [.063, .197, .064]);
-      shape(shin, this.skin, [0, -.36, .061], [.066, .052, .13]);
+      shape(shin, this.skin, [0, -.01, .019], [.057, .049, .055]);
+      contour(shin, this.skin, [[-.42,0],[-.404,.035],[-.34,.039],[-.23,.05],[-.14,.066],[-.065,.063],[0,.052],[.02,0]], 1.04);
+      const foot = bone(shin, i ? 'rightFoot' : 'leftFoot', 0, -.405, 0);
+      shape(foot, this.skin, [0, -.021, .039], [.052, .043, .112]);
+      for (let toe = 0; toe < 5; toe++) shape(foot, this.skin, [(toe - 2) * .018, -.027, .12 - Math.abs(toe - (i ? 0 : 4)) * .007], [.013, .022, .034]);
+      this.feet.push(foot);
       this.legs.push(thigh); this.shins.push(shin);
     }
     const bones: THREE.Bone[] = []; this.root.traverse(o => { if (o instanceof THREE.Bone) bones.push(o); }); this.skeleton = new THREE.Skeleton(bones);
     bones.forEach(batchRigidParts);
+    this.poses = bones.map(b => b.quaternion.clone());
   }
   /** Optional GLB uses meters, +Z forward and bone names matching this rig. Keeps procedural fallback until validated. */
   async loadGLB(url: string) {
@@ -84,45 +127,63 @@ export class FighterRig implements FighterVisual {
     gltf.scene.traverse(o => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
   }
   update(f: Fighter, grapple: Grapple | null, time: number, dt: number, impact: THREE.Quaternion, result: MatchResult | null) {
+    if (this.initialized && dt <= 0) return;
     const speed = Math.hypot(f.velocity.x, f.velocity.z); this.gait += dt * speed * 7;
-    const exhaustion = 1 - f.damage.stamina / 100, breath = Math.sin(time * (3.2 + exhaustion * 3)) * (.008 + exhaustion * .009);
+    const exhaustion = 1 - f.damage.stamina / 100, breath = Math.sin(time * (2.6 + exhaustion * 2)) * (.003 + exhaustion * .005);
     this.root.position.set(f.position.x, 0, f.position.z); this.root.rotation.set(0, f.heading, 0);
-    this.hips.position.y = .98 + breath + Math.abs(Math.sin(this.gait)) * .02 * Math.min(1, speed); this.hips.position.z = 0;
-    this.hips.rotation.set(0, -.17, 0); this.spine.rotation.set(.045 + exhaustion * .07, .2, 0); this.head.rotation.set(-.06, -.08, 0);
+    this.hips.position.set(0, .94 + breath - Math.abs(Math.sin(this.gait)) * .009 * Math.min(1, speed), 0);
+    this.hips.rotation.set(0, -.18, 0); this.spine.rotation.set(.025 + exhaustion * .065, .16, 0); this.head.rotation.set(.06, -.04, 0);
+    const lateral = f.velocity.x * Math.cos(f.heading) - f.velocity.z * Math.sin(f.heading);
+    this.spine.rotation.z -= lateral * .025;
+    this.head.rotation.y += Math.sin(time * .7 + f.id) * .018;
     for (let i = 0; i < 2; i++) {
       const s = i ? -1 : 1;
-      this.arms[i].rotation.set(-.95, s * -.17, s * .14);
-      this.forearms[i].rotation.set(-1.58, 0, s * -.12);
-      this.legs[i].rotation.set((i ? .16 : -.19) + Math.sin(this.gait + i * Math.PI) * .32 * Math.min(1, speed), 0, s * .13);
-      this.shins[i].rotation.set(.14 + Math.max(0, Math.sin(this.gait + i * Math.PI)) * .3 * Math.min(1, speed), 0, 0);
+      this.arms[i].rotation.set(i ? -.73 : -.92, s * -.12, s * .15);
+      this.forearms[i].rotation.set(i ? -1.98 : -1.78, 0, s * -.12);
+      this.legs[i].rotation.set(i ? .17 : -.27, 0, s * .08);
+      this.shins[i].rotation.set(.3, 0, 0); this.feet[i].rotation.set(0, 0, 0);
     }
     if (f.guard) {
-      this.spine.rotation.x += .09;
-      this.arms.forEach((b, i) => { b.rotation.x = f.guard === 'high' ? -1.32 : -.43; b.rotation.z = i ? -.09 : .09; });
-      this.forearms.forEach(b => b.rotation.x = f.guard === 'high' ? -1.45 : -1.95);
+      this.spine.rotation.x += .06; this.head.rotation.x += .08;
+      this.arms.forEach((b, i) => { b.rotation.x = f.guard === 'high' ? -1.02 : -.45; b.rotation.z = i ? -.09 : .09; });
+      this.forearms.forEach(b => b.rotation.x = f.guard === 'high' ? -1.98 : -1.55);
     }
-    if (f.dodge > 0) { this.spine.rotation.z += Math.sin(f.dodge / .22 * Math.PI) * .32; this.hips.position.y -= .06; }
     if (f.attack) {
       const a = f.attack, t = a.technique, side = t.hand, s = side ? -1 : 1;
-      const total = t.windup + t.active + t.recovery;
-      const extension = a.elapsed < t.windup ? a.elapsed / t.windup * .15 : a.elapsed < t.windup + t.active ? .15 + Math.sin((a.elapsed - t.windup) / t.active * Math.PI / 2) * .85 : Math.max(0, 1 - (a.elapsed - t.windup - t.active) / t.recovery);
-      const weight = Math.sin(Math.min(1, a.elapsed / total) * Math.PI);
-      if (!grapple) this.hips.position.z = extension * (t.kind === 'kick' ? .17 : t.hand ? .28 : .21);
-      this.spine.rotation.y -= s * weight * .5;
+      const { extension, preparation } = strikeMotion(a);
+      const weight = extension;
+      if (!grapple) {
+        this.hips.position.z = extension * (t.kind === 'kick' ? .03 : t.hand ? .18 : .12) - preparation * .024;
+        this.hips.position.x = s * (t.kind === 'kick' ? -.055 : .018) * extension;
+        this.hips.rotation.y += s * (preparation * .12 - extension * (t.kind === 'kick' ? .65 : .23));
+      }
+      this.spine.rotation.y += s * (preparation * .13 - extension * .34);
+      this.head.rotation.y -= this.spine.rotation.y * .45;
       if (t.kind === 'kick') {
-        this.legs[side].rotation.x = -extension * (t.zone === 'head' ? 2.25 : t.zone === 'body' ? 1.66 : 1.1);
-        this.legs[side].rotation.z = s * (.13 + weight * .26);
-        this.shins[side].rotation.x = .14 + (1 - extension) * weight * 1.5;
-        this.spine.rotation.x -= extension * .3; this.arms[side].rotation.z += s * .5 * extension;
-        if (t.zone === 'head') this.hips.position.y += extension * .1;
+        const chamber = Math.max(preparation * .75, extension);
+        this.legs[side].rotation.set(-chamber * (t.zone === 'head' ? 2.5 : t.zone === 'body' ? 1.9 : 1.12), -s * extension * .3, s * (.1 + extension * .23));
+        this.shins[side].rotation.x = .14 + preparation * 1.65 + (1 - extension) * chamber * .85;
+        this.feet[side].rotation.x = -.25 * extension;
+        this.spine.rotation.x -= extension * .18; this.spine.rotation.z -= s * extension * .19;
+        this.arms[side].rotation.x += extension * .4; this.arms[side].rotation.z += s * .32 * extension;
+        this.hips.position.y += extension * .025;
       } else {
-        this.arms[side].rotation.x = THREE.MathUtils.lerp(-.95, t.zone === 'body' ? -1.04 : -1.7, extension);
-        this.arms[side].rotation.z = t.kind === 'hook' ? s * extension * 1.15 : s * (.14 - extension * .2);
-        this.arms[side].rotation.y = t.kind === 'hook' ? s * extension * .85 : 0;
-        this.forearms[side].rotation.x = THREE.MathUtils.lerp(-1.58, t.kind === 'hook' ? -.85 : -.1, extension);
+        this.arms[side].rotation.x -= preparation * .13;
+        this.arms[side].rotation.z += s * preparation * .08;
         if (t.kind === 'clinchPunch') { this.arms[side].rotation.x = -1.3; this.forearms[side].rotation.x = -1.4 + extension * .7; }
         if (t.kind === 'groundPunch') { this.arms[side].rotation.x = -1.2 + extension * .15; this.forearms[side].rotation.x = -1.6 + extension * 1.5; }
-        if (t.zone === 'body') this.spine.rotation.x += weight * .25;
+        if (t.zone === 'body') { this.spine.rotation.x += weight * .19; this.hips.position.y -= weight * .045; }
+        else this.spine.rotation.x -= extension * .09;
+        if (!grapple) {
+          this.root.updateMatrixWorld(true);
+          const tip = strikeLocal(a);
+          const resting = new THREE.Vector3(0, -.289, 0); this.forearms[side].localToWorld(resting);
+          const target = this.root.localToWorld(new THREE.Vector3(tip.x, tip.y, tip.z));
+          // Follow the contact path without pulling the guard forward during the load phase.
+          resting.lerp(target, smooth(extension / .8));
+          const pole = new THREE.Vector3(s * (t.kind === 'hook' ? 1 : .65), t.kind === 'hook' ? .08 : -.7, -.1).applyQuaternion(this.root.quaternion);
+          solveLimb(this.arms[side], this.forearms[side], resting, pole, .3, .289);
+        }
       }
     }
     if (grapple) {
@@ -130,17 +191,21 @@ export class FighterRig implements FighterVisual {
       if (grapple.mode === 'clinch') { this.spine.rotation.x += .24; if (!f.attack) { this.arms.forEach(b => b.rotation.x = -1.5); this.forearms.forEach(b => b.rotation.x = -.9); } }
       else if (grapple.mode === 'takedown') { const t = clamp(grapple.timer / .78, 0, 1); this.hips.position.y -= t * .35; this.spine.rotation.x += top ? t * .9 : -t * .5; }
       else {
-        this.hips.position.y = top ? .62 : .22;
+        this.hips.position.y = top ? .54 : .17;
         this.hips.rotation.x = top ? .55 : -Math.PI / 2;
-        if (!top) { this.hips.position.z = .1; this.spine.rotation.x = -.05; this.legs.forEach(b => b.rotation.x = grapple.position === 'guard' ? -1.3 : -.5); this.shins.forEach(b => b.rotation.x = 1.1); }
+        if (!top) { this.hips.position.z = .1; this.spine.rotation.x = -.05; this.legs.forEach(b => b.rotation.x = grapple.position === 'guard' ? -1.3 : -.5); this.shins.forEach(b => b.rotation.x = grapple.position === 'guard' ? 1.1 : 1.35); }
         else { this.hips.position.z = 0; this.legs.forEach((b, i) => { b.rotation.x = -.8; b.rotation.z = i ? -.6 : .6; }); this.shins.forEach(b => b.rotation.x = 1.9); if (!f.attack) this.arms.forEach(b => b.rotation.x = -1.1); }
         if (grapple.position === 'halfGuard' && !top) { this.legs[0].rotation.x = -1.1; this.legs[0].rotation.z = .45; }
         if (grapple.position === 'sideControl' && top) { this.hips.rotation.y += .9; this.hips.rotation.x = 1; this.hips.position.y = .5; }
-        if (grapple.position === 'mount' && top) { this.hips.rotation.x = .28; this.hips.position.y = .64; this.spine.rotation.x += .18; }
+        if (grapple.position === 'mount' && top) { this.hips.rotation.x = .28; this.hips.position.y = .54; this.spine.rotation.x += .18; }
         if (grapple.mode === 'submission') {
-          this.hips.rotation.x = top ? -1.15 : -1.5; this.hips.position.y = .28;
-          if (top) { this.hips.rotation.y += Math.PI / 2; this.legs.forEach(b => b.rotation.x = -.95); this.shins.forEach(b => b.rotation.x = .3); this.arms.forEach(b => b.rotation.x = -1.5); this.forearms.forEach(b => b.rotation.x = -.65); }
-          else { this.arms[0].rotation.x = -2.5; this.forearms[0].rotation.x = -.1; }
+          this.hips.rotation.x = -Math.PI / 2; this.hips.position.y = top ? .2 : .17;
+          if (top) {
+            this.hips.rotation.y = -Math.PI / 2; this.spine.rotation.set(.05, 0, 0);
+            this.legs.forEach((b, i) => b.rotation.set(-.25, 0, i ? -.3 : .3));
+            this.shins.forEach(b => b.rotation.x = .55); this.arms.forEach(b => b.rotation.x = -1.2); this.forearms.forEach(b => b.rotation.x = -1.1);
+          }
+          else { this.arms[1].rotation.x = -2; this.forearms[1].rotation.x = -.3; }
         }
         if (grapple.transition) this.hips.rotation.z += Math.sin(grapple.transition.elapsed * Math.PI / .8) * .2;
       }
@@ -151,9 +216,74 @@ export class FighterRig implements FighterVisual {
     if (result?.winner === f.id) { this.arms.forEach((b, i) => { b.rotation.x = -2.9; b.rotation.z = i ? -.35 : .35; }); this.forearms.forEach(b => b.rotation.x = -.35); }
     this.spine.quaternion.multiply(impact);
     this.head.rotation.x += f.reaction * .32; this.head.rotation.z += f.reaction * f.reactionSide * .25;
+    // Blend complete poses, including getting up and ground transitions, without Euler flips.
+    const grounded = !!grapple && grapple.mode !== 'clinch' || f.state === 'knockedDown' || !!result;
+    this.skeleton.bones.forEach((b, i) => {
+      const rate = grounded ? 10 : f.attack && (this.arms.includes(b) || this.forearms.includes(b)) ? 65 : 24;
+      if (this.initialized) b.quaternion.copy(this.poses[i].slerp(b.quaternion, 1 - Math.exp(-dt * rate)));
+      else this.poses[i].copy(b.quaternion);
+    });
+    if (this.initialized) this.hips.position.copy(this.hipPosition.lerp(this.hips.position, 1 - Math.exp(-dt * (grounded ? 9 : 26))));
+    else this.hipPosition.copy(this.hips.position);
+    this.root.updateMatrixWorld(true);
+    if (!grounded) this.plantFeet(f, dt);
+    else this.feetPlanted = false;
+    this.skeleton.bones.forEach((b, i) => this.poses[i].copy(b.quaternion));
+    this.initialized = true;
     this.skin.color.copy(this.skinBase).lerp(new THREE.Color('#ab665e'), Math.min(.24, f.damage.body / 350));
+    this.skin.clearcoat = .1 + Math.min(.16, exhaustion * .12 + time * .0004);
     (this.bruise.material as THREE.MeshStandardMaterial).opacity = f.swelling * .65;
     (this.cut.material as THREE.MeshStandardMaterial).opacity = Math.max(0, f.cut - .25);
     if (this.model) for (const b of this.skeleton.bones) { const mapped = this.mapped.get(b.name)!; mapped.quaternion.copy(b.quaternion); if (b === this.hips) mapped.position.copy(b.position); }
+  }
+  /** Couple the hands to the same captured wrist instead of animating two unrelated poses. */
+  holdSubmission(defender: FighterRig, amount: number) {
+    this.root.updateMatrixWorld(true); defender.root.updateMatrixWorld(true);
+    const grip = this.spine.localToWorld(new THREE.Vector3(0, .22, .2));
+    const reach = (rig: FighterRig, side: number, point: THREE.Vector3, pole: THREE.Vector3) => {
+      const upper = rig.arms[side], lower = rig.forearms[side];
+      const beforeUpper = upper.quaternion.clone(), beforeLower = lower.quaternion.clone();
+      solveLimb(upper, lower, point, pole, .3, .289);
+      upper.quaternion.copy(beforeUpper.slerp(upper.quaternion, amount)); lower.quaternion.copy(beforeLower.slerp(lower.quaternion, amount));
+      rig.root.updateMatrixWorld(true);
+    };
+    reach(defender, 1, grip, new THREE.Vector3(0, 1, 0));
+    const wrist = defender.forearms[1].localToWorld(new THREE.Vector3(0, -.289, 0));
+    reach(this, 0, wrist.clone().add(new THREE.Vector3(.025, .025, 0)), new THREE.Vector3(1, .25, 0));
+    reach(this, 1, wrist.clone().add(new THREE.Vector3(-.025, .025, 0)), new THREE.Vector3(-1, .25, 0));
+  }
+  private plantFeet(f: Fighter, dt: number) {
+    const desired = [0, 1].map(i => this.root.localToWorld(new THREE.Vector3(i ? -.16 : .16, .062, i ? -.2 : .22)));
+    const teleport = this.previousRoot.distanceTo(this.root.position) > .7;
+    this.previousRoot.copy(this.root.position);
+    if (!this.feetPlanted || teleport) {
+      this.footTargets.forEach((p, i) => p.copy(desired[i])); this.feetPlanted = true; this.stepTime = 1;
+    }
+    const kicking = f.attack?.technique.kind === 'kick' ? f.attack.technique.hand : -1;
+    if (kicking < 0) {
+      if (this.stepTime >= 1) {
+        const errors = this.footTargets.map((p, i) => p.distanceTo(desired[i]));
+        const side = errors[0] > errors[1] ? 0 : 1;
+        if (errors[side] > .12) {
+          this.stepSide = side; this.stepTime = 0; this.stepFrom.copy(this.footTargets[side]);
+          this.stepTo.copy(desired[side]).add(new THREE.Vector3(f.velocity.x, 0, f.velocity.z).multiplyScalar(.1));
+        }
+      }
+      if (this.stepTime < 1) {
+        this.stepTime = Math.min(1, this.stepTime + dt / .19);
+        this.footTargets[this.stepSide].lerpVectors(this.stepFrom, this.stepTo, smooth(this.stepTime));
+        this.footTargets[this.stepSide].y += Math.sin(this.stepTime * Math.PI) * .065;
+      }
+    } else { this.footTargets[kicking].copy(desired[kicking]); this.stepTime = 1; }
+    const pole = new THREE.Vector3(0, .05, 1).applyQuaternion(this.root.quaternion);
+    for (let i = 0; i < 2; i++) {
+      if (i === kicking) continue;
+      // Keep the support leg within anatomical reach during turns and lunges.
+      if (this.footTargets[i].distanceTo(desired[i]) > .37) this.footTargets[i].lerp(desired[i], 1 - Math.exp(-dt * 22));
+      solveLimb(this.legs[i], this.shins[i], this.footTargets[i], pole, .405, .405);
+      const parentRotation = this.shins[i].getWorldQuaternion(new THREE.Quaternion()).invert();
+      const yaw = f.heading + (i ? -.16 : .1) + (kicking >= 0 ? (kicking ? .5 : -.5) * strikeMotion(f.attack!).extension : 0);
+      this.feet[i].quaternion.copy(parentRotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw)));
+    }
   }
 }
