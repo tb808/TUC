@@ -22,15 +22,16 @@ export function strikeMotion(attack: Attack) {
   return { extension, preparation, recovery: smooth((elapsed - end) / t.recovery) };
 }
 
-/** Local +Z is forward. Hooks and round kicks sweep across the opponent. */
+/** Local +Z is forward. Each contact path is shared by hit detection and the rig. */
 export function strikeLocal(attack: Attack) {
   const t = attack.technique, side = t.hand ? -1 : 1;
   const { extension } = strikeMotion(attack);
   const phase = Math.max(0, Math.min(1, (attack.elapsed - t.windup) / t.active));
-  const arc = t.kind === 'hook' ? .3 : t.kind === 'kick' ? .36 : 0;
+  const arc = t.kind === 'hook' || t.kind === 'elbow' ? .3 : t.kind === 'kick' ? .36 : t.kind === 'sideKick' ? .18 : 0;
+  const rise = t.kind === 'uppercut' ? .18 * extension : t.kind === 'knee' && t.zone === 'head' ? .12 * extension : 0;
   return {
     x: side * (.09 + Math.cos(phase * Math.PI) * arc),
-    z: t.reach * (.42 + extension * .58),
-    y: t.zone === 'head' ? 1.65 : t.zone === 'body' ? 1.18 : .52,
+    z: t.reach * ((t.kind === 'elbow' || t.kind === 'knee' ? .58 : .42) + extension * (t.kind === 'elbow' || t.kind === 'knee' ? .42 : .58)),
+    y: (t.zone === 'head' ? 1.62 : t.zone === 'body' ? 1.16 : .52) + rise,
   };
 }

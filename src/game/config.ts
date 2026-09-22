@@ -1,4 +1,4 @@
-import type { DifficultyProfile, FighterStats, MatchRules, Technique, Zone } from './types';
+import type { AnatomicalTarget, DifficultyProfile, FighterStats, MatchRules, Technique, TechniqueKind, Zone } from './types';
 export const RULES: MatchRules = { rounds: 3, roundSeconds: 180, breakSeconds: 6, cageApothem: 4.65 };
 export const STATS: FighterStats = { maxStamina: 100, power: 1, speed: 1, resilience: 1, grappling: 1 };
 export const DIFFICULTIES: DifficultyProfile[] = [
@@ -9,20 +9,31 @@ export const DIFFICULTIES: DifficultyProfile[] = [
   { level: 5, name: 'Champion', subtitle: 'Präzision in jeder Phase.', reaction: .15, accuracy: .9, combo: 5, spacing: 1, reserve: 39, grappling: .9, aggression: .84 },
 ];
 export const TECHNIQUES: Record<string, Technique> = {};
+const add = (id: string, label: string, kind: TechniqueKind, hand: number, zone: Zone, target: AnatomicalTarget, windup: number, active: number, recovery: number, reach: number, radius: number, damage: number, cost: number, impulse: number, comboAt: number) => {
+  TECHNIQUES[id] = { id, label, kind, hand, zone, target, windup, active, recovery, reach, radius, damage, cost, impulse, comboAt };
+};
 for (const hand of [0, 1]) {
   for (const zone of ['head', 'body'] as Zone[]) {
     for (const hook of [false, true]) {
       const id = `${hook ? 'hook' : 'punch'}-${hand}-${zone}`;
-      TECHNIQUES[id] = { id, label: hook ? 'Haken' : hand ? 'Cross' : 'Jab', kind: hook ? 'hook' : 'punch', hand, zone, windup: hook ? .22 : hand ? .16 : .12, active: .11, recovery: hook ? .35 : hand ? .29 : .22, reach: hook ? .76 : hand ? .99 : .91, radius: .1, damage: hook ? 10 : hand ? 8 : 5, cost: hook ? 11 : hand ? 8 : 5, impulse: hook ? .22 : hand ? .18 : .09, comboAt: hook ? .23 : .15 };
+      add(id, hook ? 'Haken' : hand ? 'Cross' : 'Jab', hook ? 'hook' : 'punch', hand, zone, zone === 'head' ? hook ? 'temple' : 'chin' : hand ? 'liver' : 'ribs', hook ? .22 : hand ? .16 : .12, .11, hook ? .35 : hand ? .29 : .22, hook ? .76 : hand ? .99 : .91, .1, hook ? 10 : hand ? 8 : 5, hook ? 11 : hand ? 8 : 5, hook ? .22 : hand ? .18 : .09, hook ? .23 : .15);
     }
   }
+  add(`uppercut-${hand}-head`, hand ? 'Rear Uppercut' : 'Lead Uppercut', 'uppercut', hand, 'head', 'chin', .2, .1, .34, .7, .11, hand ? 12 : 9, hand ? 13 : 10, .22, .22);
+  add(`uppercut-${hand}-body`, 'Body Uppercut', 'uppercut', hand, 'body', hand ? 'liver' : 'solarPlexus', .18, .1, .31, .68, .11, hand ? 10 : 8, 10, .14, .2);
+  add(`elbow-${hand}-head`, hand ? 'Rear Elbow' : 'Lead Elbow', 'elbow', hand, 'head', 'temple', .18, .08, .38, .53, .12, hand ? 15 : 12, 15, .3, .25);
+  add(`elbow-${hand}-body`, 'Body Elbow', 'elbow', hand, 'body', hand ? 'liver' : 'ribs', .18, .08, .35, .5, .12, 11, 13, .18, .24);
   for (const zone of ['head', 'body', 'leg'] as Zone[]) {
     const id = `kick-${hand}-${zone}`;
-    TECHNIQUES[id] = { id, label: zone === 'head' ? 'High-Kick' : zone === 'body' ? 'Body-Kick' : 'Low-Kick', kind: 'kick', hand, zone, windup: zone === 'head' ? .4 : .28, active: .14, recovery: zone === 'head' ? .52 : .4, reach: 1.24, radius: .14, damage: zone === 'head' ? 16 : zone === 'body' ? 12 : 9, cost: zone === 'head' ? 19 : 13, impulse: .3, comboAt: .38 };
+    add(id, zone === 'head' ? 'High-Kick' : zone === 'body' ? 'Body-Kick' : 'Low-Kick', 'kick', hand, zone, zone === 'head' ? 'temple' : zone === 'body' ? hand ? 'liver' : 'ribs' : 'thigh', zone === 'head' ? .4 : .28, .14, zone === 'head' ? .52 : .4, 1.24, .14, zone === 'head' ? 16 : zone === 'body' ? 12 : 9, zone === 'head' ? 19 : 13, .3, .38);
   }
+  add(`frontKick-${hand}-body`, hand ? 'Rear Front-Kick' : 'Lead Teep', 'frontKick', hand, 'body', 'solarPlexus', .26, .13, .37, 1.38, .13, hand ? 11 : 8, 12, .34, .3);
+  add(`sideKick-${hand}-body`, 'Side-Kick', 'sideKick', hand, 'body', 'ribs', .38, .12, .55, 1.46, .14, 14, 18, .42, .42);
+  add(`knee-${hand}-body`, 'Knie zum Körper', 'knee', hand, 'body', hand ? 'liver' : 'solarPlexus', .2, .1, .33, .68, .14, 12, 13, .24, .22);
+  add(`knee-${hand}-head`, 'Knie zum Kopf', 'knee', hand, 'head', 'chin', .3, .11, .46, .62, .14, 17, 20, .38, .34);
   for (const kind of ['groundPunch', 'clinchPunch'] as const) {
     const id = `${kind}-${hand}`;
-    TECHNIQUES[id] = { id, label: kind === 'groundPunch' ? 'Ground & Pound' : 'Kurzer Schlag', kind, hand, zone: 'head', windup: .2, active: .1, recovery: .35, reach: 1.4, radius: .2, damage: kind === 'groundPunch' ? 7 : 5, cost: 9, impulse: .14, comboAt: .3 };
+    add(id, kind === 'groundPunch' ? 'Ground & Pound' : 'Kurzer Schlag', kind, hand, 'head', 'temple', .2, .1, .35, 1.4, .2, kind === 'groundPunch' ? 7 : 5, 9, .14, .3);
   }
 }
 export const POSITION_LABELS = { guard: 'Guard', halfGuard: 'Half Guard', sideControl: 'Side Control', mount: 'Mount' };

@@ -9,7 +9,7 @@ try {
   await page.goto('http://127.0.0.1:5173/');
   await page.waitForFunction(() => window.__TUC__?.view && !document.querySelector('#start').disabled, undefined, { timeout: 60000 });
   await page.locator('#start').click();
-  const poses = process.argv.length > 2 ? process.argv.slice(2) : ['stance', 'jab', 'hook', 'body', 'low-kick', 'high-kick', 'clinch', 'guard', 'mount', 'submission'];
+  const poses = process.argv.length > 2 ? process.argv.slice(2) : ['stance', 'southpaw', 'jab', 'hook', 'uppercut', 'elbow', 'body', 'low-kick', 'front-kick', 'side-kick', 'knee', 'high-kick', 'parry', 'slip', 'check', 'clinch', 'guard', 'mount', 'submission'];
   for (const pose of poses) {
     await page.evaluate(async pose => {
       const { TECHNIQUES } = await import('/src/game/config.ts');
@@ -18,8 +18,13 @@ try {
       for (const [i, f] of match.fighters.entries()) {
         f.position = { x: i ? .53 : -.53, z: 0 }; f.heading = i ? -Math.PI / 2 : Math.PI / 2;
         f.velocity = { x: 0, z: 0 }; f.attack = null; f.guard = null; f.state = 'idle'; f.reaction = 0;
+        f.stance = 'orthodox'; f.stanceSwitch = 0; f.defense = null; f.defenseTime = 0;
       }
-      const actions = { jab: 'punch-0-head', hook: 'hook-1-head', body: 'punch-1-body', 'low-kick': 'kick-0-leg', 'high-kick': 'kick-1-head' };
+      const actions = { jab: 'punch-0-head', hook: 'hook-1-head', uppercut: 'uppercut-1-head', elbow: 'elbow-0-head', body: 'punch-1-body', 'low-kick': 'kick-0-leg', 'front-kick': 'frontKick-1-body', 'side-kick': 'sideKick-1-body', knee: 'knee-1-body', 'high-kick': 'kick-1-head' };
+      if (pose === 'southpaw') match.fighters[0].stance = 'southpaw';
+      if (pose === 'parry') { match.fighters[0].defense = 'parry'; match.fighters[0].defenseTime = .15; }
+      if (pose === 'slip') { match.fighters[0].defense = 'slipLeft'; match.fighters[0].defenseTime = .2; }
+      if (pose === 'check') { match.fighters[0].defense = 'check'; match.fighters[0].defenseTime = .2; }
       if (actions[pose]) {
         const technique = TECHNIQUES[actions[pose]];
         match.fighters[0].attack = { technique, elapsed: technique.windup + technique.active / 2, hit: false, previousTip: null };

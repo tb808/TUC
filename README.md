@@ -6,10 +6,11 @@ Ein Kampf geht über bis zu drei Runden à drei Minuten. Du kannst durch KO, TKO
 
 ## Empfohlener Einstieg: Training
 
-Starte zuerst den **Trainingsmodus**. Dort führt dich ein Coach Schritt für Schritt durch drei Lektionen:
+Starte zuerst den **Trainingsmodus**. Dort führt dich ein Coach Schritt für Schritt durch vier Lektionen:
 
 - **Grundlagen:** Bewegung, Jab und Deckung
 - **Striking:** Jab, Cross, Low-Kick und Body-Kick
+- **Standkampf 2:** Auslagenwechsel, Uppercuts, Front-Kicks, Knie und Ellbogen
 - **Grappling:** Clinch, Takedown, Half Guard, Side Control und Mount
 
 Im **freien Training** kannst du alle Techniken ohne Zeitdruck ausprobieren. Der Trainingsdummy greift nicht an und der Modus endet nicht durch KO oder TKO.
@@ -30,11 +31,22 @@ Am besten funktioniert TUC mit einer aktuellen Version von Chrome oder Edge. Das
 | **J / K** | Jab / Cross |
 | **Shift + J / K** | Haken |
 | **Strg + J / K** | Körperschlag |
+| **Alt + J / K** | Uppercut |
+| **Shift + Alt + J / K** | Ellbogen |
 | **U / I** | Low-Kick |
 | **Strg + U / I** | Body-Kick |
 | **Shift + U / I** | High-Kick |
+| **Alt + U / I** | Front-Kick |
+| **Strg + Shift + U / I** | Side-Kick |
+| **Strg + Alt + U / I** | Knie zum Körper |
+| **Shift + Alt + U / I** | Knie zum Kopf |
+| **Q** | Zwischen orthodoxer und Southpaw-Auslage wechseln |
 | **Leertaste** | Kopf decken |
 | **Strg + Leertaste** | Körper decken und Takedowns abwehren |
+| **Leertaste antippen** | Schläge parieren |
+| **Leertaste + A / D** | Nach links / rechts slippen |
+| **Leertaste + S** | Zurücklehnen (Pull) |
+| **Strg + Leertaste antippen** | Low-Kick checken oder Body-Kick fangen |
 | **G** | Clinch beginnen oder kontrollieren |
 | **Shift + G** | Takedown versuchen |
 | **R** | Clinch lösen |
@@ -65,6 +77,8 @@ Mit **Esc** pausierst du den Kampf.
 - Schläge treffen nur aus der passenden Entfernung. Bewege dich nach einer Kombination wieder aus der Reichweite.
 - Behalte deine Ausdauer im Auge. Angriffe, Deckung und Bodenkampf kosten Kraft.
 - Eine dauerhafte Deckung schützt dich nicht kostenlos: Treffer auf die Deckung verbrauchen ebenfalls Ausdauer.
+- Gut getimte Paraden, Slips, Pulls und Kick-Checks öffnen ein kurzes Konterfenster. Ein sofortiger Treffer richtet dann mehr Schaden an.
+- Reichweite, Standfestigkeit und ein abgeschlossener Auslagenwechsel beeinflussen die Schlagwirkung. Knie und Ellbogen sind besonders in der Nahdistanz stark.
 - Wehre einen Takedown rechtzeitig mit **Strg + Leertaste** ab.
 - Am Boden zeigt das Richtungsmenü, welche Position du mit **W**, **A**, **S** oder **D** erreichst. Ein einzelner Tastendruck genügt.
 - Aus der Mount kannst du mit **U** eine Armbar starten und sie anschließend mit gehaltenem **U** beenden.
@@ -73,9 +87,11 @@ Mit **Esc** pausierst du den Kampf.
 
 - Fünf Schwierigkeitsstufen von Einsteiger bis Champion
 - Vollständiger Fight-Night-Walkout mit Kommissionscheck, Begleitteam, Cageside-Kontrolle, Käfigeinzug, Ringansage und Referee-Instruktionen
-- Geführter Trainingsmodus mit drei Lektionen und passivem Übungsgegner
+- Geführter Trainingsmodus mit vier Lektionen und passivem Übungsgegner
 - Freies Training zum gefahrlosen Ausprobieren aller Techniken
-- Standkampf mit Schlägen, Tritten, Deckung und Ausdauer
+- Vertiefter Standkampf mit zwei Auslagen, Schlägen, Uppercuts, Ellbogen, Knie- und mehreren Kickvarianten
+- Aktive Verteidigung mit Paraden, Slips, Pulls, Low-Kick-Checks, Body-Kick-Catches und Konterfenstern
+- Anatomische Trefferzonen für Kinn, Schläfe, Leber, Rippen, Solarplexus und Oberschenkel
 - Clinch, Takedowns und Takedown-Abwehr
 - Bodenkampf mit mehreren Positionen, Sweeps und Ground-and-Pound
 - KO, TKO, Aufgabe und Punktrichterentscheidung

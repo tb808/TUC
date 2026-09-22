@@ -1,6 +1,6 @@
 import { RULES, STATS, TECHNIQUES } from './config';
 import { strikeLocal } from './motion';
-import { EMPTY_CONTROLS, type Attack, type CombatEvent, type Controls, type Fighter, type FighterId, type Grapple, type GroundDirection, type GroundPosition, type MatchResult, type MatchRules, type RoundScore, type Scorecard, type Vec2 } from './types';
+import { EMPTY_CONTROLS, type Attack, type CombatEvent, type Controls, type DefenseMove, type Fighter, type FighterId, type Grapple, type GroundDirection, type GroundPosition, type MatchResult, type MatchRules, type RoundScore, type Scorecard, type Technique, type TechniqueKind, type Vec2 } from './types';
 export const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 export const distance = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
 export const angleDelta = (a: number, b: number) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
@@ -30,7 +30,7 @@ export function groundMoveOptions(g: Grapple, actor: FighterId) {
   return (['advance', 'left', 'right', 'reverse'] as GroundDirection[]).map(direction => groundMoveOption(g, actor, direction)).filter((option): option is GroundMoveOption => !!option);
 }
 const newScore = (): RoundScore => ({ damage: [0, 0], grappling: [0, 0], control: [0, 0], knockdowns: [0, 0] });
-const createFighter = (id: FighterId): Fighter => ({ id, name: id ? 'ALEX VOLK' : 'TYLER', position: { x: id ? 1.5 : -1.5, z: 0 }, velocity: { x: 0, z: 0 }, heading: id ? -Math.PI / 2 : Math.PI / 2, state: 'idle', stats: { ...STATS }, damage: { head: 0, body: 0, leg: 0, balance: 100, stamina: 100 }, attack: null, guard: null, stun: 0, cooldown: 0, knockdowns: 0, knockdownTime: 0, reaction: 0, reactionSide: 1, cut: 0, swelling: 0, unanswered: 0, lastHit: -99 });
+const createFighter = (id: FighterId): Fighter => ({ id, name: id ? 'ALEX VOLK' : 'TYLER', position: { x: id ? 1.5 : -1.5, z: 0 }, velocity: { x: 0, z: 0 }, heading: id ? -Math.PI / 2 : Math.PI / 2, stance: 'orthodox', stanceSwitch: 0, state: 'idle', stats: { ...STATS }, damage: { head: 0, body: 0, leg: 0, balance: 100, stamina: 100 }, attack: null, guard: null, defense: null, defenseTime: 0, counterWindow: 0, stun: 0, cooldown: 0, knockdowns: 0, knockdownTime: 0, reaction: 0, reactionSide: 1, reactionZone: 'head', reactionKind: 'punch', cut: 0, swelling: 0, unanswered: 0, lastHit: -99 });
 export function insideCage(p: Vec2, apothem = RULES.cageApothem, radius = .35): Vec2 {
   const result = { ...p };
   // Radial projection satisfies all eight half-planes, including distant corner inputs.
@@ -51,13 +51,32 @@ function segmentDistance(p: Vec2, a: Vec2, b: Vec2) {
   const t = clamp(((p.x - a.x) * dx + (p.z - a.z) * dz) / Math.max(.0001, dx * dx + dz * dz), 0, 1);
   return Math.hypot(p.x - a.x - t * dx, p.z - a.z - t * dz);
 }
-export function canStrikeHit(attacker: Fighter, target: Fighter, attack: Attack): boolean {
+const wideStrike = (kind: TechniqueKind) => ['hook', 'elbow', 'kick', 'sideKick'].includes(kind);
+const strikeWouldHit = (attacker: Fighter, target: Fighter, attack: Attack) => {
   const t = attack.technique;
   if (attack.hit || attack.elapsed < t.windup || attack.elapsed > t.windup + t.active) return false;
   const angle = Math.atan2(target.position.x - attacker.position.x, target.position.z - attacker.position.z);
-  if (Math.abs(angleDelta(angle, attacker.heading)) > (t.kind === 'hook' || t.kind === 'kick' ? .68 : .48)) return false;
+  if (Math.abs(angleDelta(angle, attacker.heading)) > (wideStrike(t.kind) ? .68 : .48)) return false;
   const tip = strikeTip(attacker, attack);
   return segmentDistance(target.position, attack.previousTip ?? tip, tip) < t.radius + .29;
+};
+export function defenseAvoids(target: Fighter, technique: Technique) {
+  if (target.defenseTime <= 0) return false;
+  if ((target.defense === 'slipLeft' || target.defense === 'slipRight') && technique.zone === 'head') return technique.kind === 'punch' || technique.kind === 'uppercut';
+  return target.defense === 'pull' && technique.zone === 'head' && ['punch', 'hook', 'uppercut', 'elbow'].includes(technique.kind);
+}
+export function canStrikeHit(attacker: Fighter, target: Fighter, attack: Attack): boolean {
+  return strikeWouldHit(attacker, target, attack) && !defenseAvoids(target, attack.technique);
+}
+export function impactQuality(attacker: Fighter, target: Fighter, technique: Technique) {
+  const d = distance(attacker.position, target.position);
+  const ideal = technique.kind === 'elbow' || technique.kind === 'knee' ? .58 : technique.kind === 'hook' || technique.kind === 'uppercut' ? .72 : technique.kind === 'kick' || technique.kind === 'frontKick' || technique.kind === 'sideKick' ? 1.16 : .9;
+  const tolerance = technique.kind === 'elbow' || technique.kind === 'knee' ? .42 : .75;
+  const range = clamp(1 - Math.abs(d - ideal) / tolerance * .32, .58, 1);
+  const speed = Math.hypot(attacker.velocity.x, attacker.velocity.z);
+  const planted = clamp(1 - speed * (technique.kind === 'punch' ? .07 : .12), .72, 1);
+  const stance = attacker.stanceSwitch > 0 ? .72 : technique.hand ? 1.06 : .96;
+  return range * planted * stance;
 }
 export function scoreRound(score: RoundScore): [number, number] {
   // Damage dominates, positional control resolves otherwise close rounds.
@@ -101,6 +120,8 @@ export class Combat {
   private updateFighter(f: Fighter, dt: number) {
     const input = this.inputs[f.id], enemy = this.fighters[other(f.id)];
     f.cooldown = Math.max(0, f.cooldown - dt); f.stun = Math.max(0, f.stun - dt);
+    f.defenseTime = Math.max(0, f.defenseTime - dt); f.counterWindow = Math.max(0, f.counterWindow - dt); f.stanceSwitch = Math.max(0, f.stanceSwitch - dt);
+    if (f.defenseTime <= 0) f.defense = null;
     f.reaction *= Math.exp(-dt * 9);
     const recoil = this.recoil[f.id];
     if (!this.grapple) {
@@ -130,7 +151,7 @@ export class Combat {
       const length = Math.hypot(input.move.x, input.move.z);
       const forward = length ? (input.move.x * Math.sin(f.heading) + input.move.z * Math.cos(f.heading)) / length : 0;
       const footwork = forward < -.2 ? .78 : Math.abs(forward) < .45 ? .88 : 1;
-      const committed = f.attack?.technique.kind === 'kick' ? .08 : .28;
+      const committed = f.attack && ['kick', 'frontKick', 'sideKick', 'knee'].includes(f.attack.technique.kind) ? .08 : .28;
       const pace = (f.attack ? committed : f.guard ? .58 : 1) * footwork * (f.stun > 0 ? .12 : 1) * (1 - f.damage.leg * .004) * (1.2 + f.damage.stamina * .007);
       const vx = length ? input.move.x / Math.max(1, length) * pace : 0;
       const vz = length ? input.move.z / Math.max(1, length) * pace : 0;
@@ -144,6 +165,12 @@ export class Combat {
   private tryAction(f: Fighter, action: string, direction?: string): boolean {
     const enemy = this.fighters[other(f.id)];
     if (enemy.state === 'knockedDown') return false;
+    if (action === 'stance') {
+      if (f.attack || this.grapple || f.damage.stamina < 4) return false;
+      f.stance = f.stance === 'orthodox' ? 'southpaw' : 'orthodox'; f.stanceSwitch = .34; f.cooldown = .24; f.damage.stamina -= 2;
+      this.message(f.id === 0 ? (f.stance === 'orthodox' ? 'ORTHODOXE AUSLAGE' : 'SOUTHPAW-AUSLAGE') : 'GEGNER WECHSELT AUSLAGE'); return true;
+    }
+    if (['parry', 'check', 'slip-left', 'slip-right', 'pull'].includes(action)) return this.tryDefense(f, action);
     if (action === 'stand') return this.tryStand(f);
     if (action === 'grapple' || action === 'takedown') return this.tryGrapple(f, action, direction);
     if (action === 'submission') {
@@ -156,25 +183,55 @@ export class Combat {
     if (!technique) return false;
     if (this.grapple) {
       if (this.grapple.mode === 'submission' || this.grapple.mode === 'takedown' || this.grapple.transition) return false;
-      if (technique.kind === 'kick') return false;
-      technique = TECHNIQUES[`${this.grapple.mode === 'clinch' ? 'clinchPunch' : 'groundPunch'}-${technique.hand}`];
+      const legStrike = ['kick', 'frontKick', 'sideKick', 'knee'].includes(technique.kind);
+      if (this.grapple.mode === 'ground' && legStrike) return false;
+      if (this.grapple.mode === 'clinch' && legStrike && technique.kind !== 'knee') return false;
+      if (this.grapple.mode === 'ground' || technique.kind !== 'knee') technique = TECHNIQUES[`${this.grapple.mode === 'clinch' ? 'clinchPunch' : 'groundPunch'}-${technique.hand}`];
       if (this.grapple.mode === 'ground' && this.grapple.top !== f.id) return false;
     }
     if (f.attack) {
       const a = f.attack, t = a.technique;
-      if (a.elapsed < t.windup + t.active + t.comboAt || t.hand === technique.hand || t.kind === 'kick') return false;
+      if (a.elapsed < t.windup + t.active + t.comboAt || !this.canChain(t, technique)) return false;
     }
     if (f.damage.stamina < technique.cost + 2) return false;
     f.damage.stamina -= technique.cost; f.attack = { technique, elapsed: 0, hit: false, previousTip: null }; f.guard = null; f.state = 'attacking';
     return true;
   }
+  private tryDefense(f: Fighter, action: string) {
+    if (f.attack || this.grapple || f.damage.stamina < 4) return false;
+    const map: Record<string, DefenseMove> = { parry: 'parry', check: 'check', 'slip-left': 'slipLeft', 'slip-right': 'slipRight', pull: 'pull' };
+    const move = map[action]; if (!move) return false;
+    f.defense = move; f.defenseTime = move === 'parry' ? .18 : move === 'check' ? .3 : .28;
+    f.cooldown = move === 'parry' ? .14 : .22; f.damage.stamina -= move === 'parry' ? 2 : 4;
+    if (move === 'slipLeft' || move === 'slipRight') {
+      const side = move === 'slipLeft' ? -1 : 1;
+      this.recoil[f.id].x += Math.cos(f.heading) * side * 1.1; this.recoil[f.id].z -= Math.sin(f.heading) * side * 1.1;
+    } else if (move === 'pull') {
+      this.recoil[f.id].x -= Math.sin(f.heading) * 1.25; this.recoil[f.id].z -= Math.cos(f.heading) * 1.25;
+    }
+    return true;
+  }
+  private canChain(previous: Technique, next: Technique) {
+    if (previous.hand === next.hand && previous.kind !== 'punch') return false;
+    if (['sideKick', 'frontKick', 'knee', 'elbow'].includes(previous.kind)) return false;
+    if (previous.kind === 'kick') return next.kind === 'punch' && previous.hand !== next.hand;
+    if (next.kind === 'sideKick' || next.kind === 'frontKick') return previous.kind === 'punch' && previous.hand === 0;
+    return previous.hand !== next.hand || next.kind === 'knee';
+  }
   private updateAttack(f: Fighter, dt: number) {
     const a = f.attack; if (!a) return;
     a.elapsed += dt;
     const enemy = this.fighters[other(f.id)], t = a.technique;
-    const linked = this.grapple && (t.kind === 'groundPunch' || t.kind === 'clinchPunch');
-    if (enemy.state !== 'knockedDown' && enemy.state !== 'finished' && (linked ? !a.hit && a.elapsed >= t.windup && a.elapsed <= t.windup + t.active : canStrikeHit(f, enemy, a))) {
-      a.hit = true; this.applyHit(f, enemy, a);
+    const linked = this.grapple && (t.kind === 'groundPunch' || t.kind === 'clinchPunch' || (this.grapple.mode === 'clinch' && t.kind === 'knee'));
+    if (enemy.state !== 'knockedDown' && enemy.state !== 'finished') {
+      if (linked && !a.hit && a.elapsed >= t.windup && a.elapsed <= t.windup + t.active) { a.hit = true; this.applyHit(f, enemy, a); }
+      else if (!linked && strikeWouldHit(f, enemy, a)) {
+        a.hit = true;
+        if (defenseAvoids(enemy, t)) {
+          enemy.counterWindow = .72; f.cooldown = Math.max(f.cooldown, .18);
+          this.message(enemy.defense === 'pull' ? 'PULL COUNTER BEREIT' : 'SLIP · KONTERFENSTER');
+        } else this.applyHit(f, enemy, a);
+      }
     }
     if (a.elapsed >= t.windup) a.previousTip = strikeTip(f, a);
     if (a.elapsed >= t.windup + t.active + t.recovery && f.attack === a) { f.attack = null; f.state = this.grapple ? this.grapple.mode === 'clinch' ? 'clinch' : 'ground' : 'idle'; }
@@ -182,19 +239,33 @@ export class Combat {
   private applyHit(attacker: Fighter, target: Fighter, a: Attack) {
     const t = a.technique;
     const facing = Math.abs(angleDelta(Math.atan2(attacker.position.x - target.position.x, attacker.position.z - target.position.z), target.heading)) < 1.1;
-    const blocked = facing && (t.zone === 'head' ? target.guard === 'high' : target.guard === 'low') && target.damage.stamina > 3;
+    const timedParry = facing && target.defense === 'parry' && target.defenseTime > 0 && ['punch', 'hook', 'uppercut', 'elbow'].includes(t.kind);
+    const checked = facing && target.defense === 'check' && target.defenseTime > 0 && t.kind === 'kick' && t.zone === 'leg';
+    const caught = facing && target.defense === 'check' && target.defenseTime > 0 && t.kind === 'kick' && t.zone === 'body';
+    const guarded = facing && (t.zone === 'head' ? target.guard === 'high' : target.guard === 'low') && target.damage.stamina > 3;
+    const defense = timedParry ? 'parry' : checked ? 'check' : caught ? 'catch' : guarded ? 'guard' : undefined;
+    const blocked = !!defense;
     const relativeSpeed = (attacker.velocity.x - target.velocity.x) * Math.sin(attacker.heading) + (attacker.velocity.z - target.velocity.z) * Math.cos(attacker.heading);
-    const vulnerable = target.attack && target.attack.elapsed < target.attack.technique.windup ? 1.2 : 1;
-    const damage = t.damage * attacker.stats.power / target.stats.resilience * (.65 + attacker.damage.stamina / 200) * clamp(1 + relativeSpeed * .075, .75, 1.22) * vulnerable * (blocked ? .12 : 1);
+    const vulnerable = (target.attack && target.attack.elapsed < target.attack.technique.windup ? 1.2 : 1) * (attacker.counterWindow > 0 ? 1.35 : 1);
+    const anatomy = t.target === 'chin' ? 1.12 : t.target === 'temple' ? 1.08 : t.target === 'liver' ? 1.14 : t.target === 'solarPlexus' ? 1.08 : t.target === 'thigh' ? 1.06 : 1;
+    const defenseScale = defense === 'parry' || defense === 'check' || defense === 'catch' ? .025 : defense === 'guard' ? .12 : 1;
+    const damage = t.damage * attacker.stats.power / target.stats.resilience * (.65 + attacker.damage.stamina / 200) * clamp(1 + relativeSpeed * .075, .75, 1.22) * vulnerable * anatomy * impactQuality(attacker, target, t) * defenseScale;
     target.damage[t.zone] = clamp(target.damage[t.zone] + damage, 0, 120);
-    target.damage.balance = Math.max(0, target.damage.balance - damage * (t.zone === 'head' ? 2.5 : 1));
-    target.damage.stamina = Math.max(0, target.damage.stamina - (blocked ? t.damage * .65 : t.zone === 'body' ? damage * 1.7 : damage * .25));
+    const balance = t.target === 'chin' ? 3.15 : t.target === 'temple' ? 2.65 : t.zone === 'head' ? 2.4 : t.target === 'solarPlexus' ? 1.35 : 1;
+    target.damage.balance = Math.max(0, target.damage.balance - damage * balance);
+    const bodyDrain = t.target === 'liver' ? 2.05 : t.target === 'solarPlexus' ? 2.25 : 1.7;
+    target.damage.stamina = Math.max(0, target.damage.stamina - (blocked ? t.damage * (defense === 'guard' ? .65 : .22) : t.zone === 'body' ? damage * bodyDrain : damage * .25));
     target.reaction = blocked ? .18 : clamp(damage / 15, .2, 1.2); target.reactionSide = t.hand ? -1 : 1;
+    target.reactionZone = t.zone; target.reactionKind = t.kind;
     target.cut = clamp(target.damage.head / 100, 0, 1); target.swelling = clamp(target.damage.head / 90, 0, 1);
     target.lastHit = this.elapsed;
     if (!blocked) { target.unanswered += 1; attacker.unanswered = 0; }
     this.score.damage[attacker.id] += damage;
-    this.events.push({ type: 'hit', attacker: attacker.id, target: target.id, technique: t.id, zone: t.zone, strength: damage, blocked, position: { ...target.position } });
+    this.events.push({ type: 'hit', attacker: attacker.id, target: target.id, technique: t.id, zone: t.zone, strength: damage, blocked, defense, position: { ...target.position } });
+    if (timedParry) { target.counterWindow = .82; attacker.stun = Math.max(attacker.stun, .15); attacker.attack = null; this.message('PARADE · KONTERFENSTER'); }
+    if (checked) { target.counterWindow = .58; attacker.damage.leg = clamp(attacker.damage.leg + t.damage * .42, 0, 120); attacker.damage.balance = Math.max(0, attacker.damage.balance - 13); attacker.reaction = .42; attacker.reactionZone = 'leg'; attacker.reactionKind = 'kick'; this.message('LOW-KICK GECHECKT'); }
+    if (caught) { target.counterWindow = .9; attacker.stun = Math.max(attacker.stun, .28); attacker.attack = null; attacker.cooldown = .35; this.message('BODY-KICK GEFANGEN · KONTER'); }
+    if (!blocked && attacker.counterWindow > 0) { this.message('SAUBERER KONTER'); attacker.counterWindow = 0; }
     if (!blocked && !this.grapple) {
       this.recoil[target.id].x += Math.sin(attacker.heading) * t.impulse * 11;
       this.recoil[target.id].z += Math.cos(attacker.heading) * t.impulse * 11;

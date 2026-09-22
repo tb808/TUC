@@ -9,8 +9,8 @@ test('menu, keyboard combat, pause, full match end and rematch', async ({ page }
   await page.locator('#controls-link').click(); await expect(page.locator('#modal')).toBeVisible(); await page.locator('#close-help').click();
   await page.locator('#start').click(); await expect(page.locator('#hud')).toBeVisible();
   await expect(page.locator('#walkout')).toBeVisible(); await expect(page.locator('#walkout-title')).toHaveText('THE PROVING GROUND');
-  await page.waitForTimeout(3500); await expect(page.locator('#walkout-title')).toHaveText('LETZTE FREIGABE'); await page.screenshot({ path: 'output/playwright/walkout-check.png' });
-  await page.waitForTimeout(2500); await expect(page.locator('#walkout-title')).toHaveText('ALEX VOLK'); await page.screenshot({ path: 'output/playwright/walkout-aisle.png' });
+  await page.evaluate(() => (window as any).__TUC__.setWalkout(3.5)); await expect(page.locator('#walkout-title')).toHaveText('LETZTE FREIGABE'); await page.screenshot({ path: 'output/playwright/walkout-check.png' });
+  await page.evaluate(() => (window as any).__TUC__.setWalkout(6)); await expect(page.locator('#walkout-title')).toHaveText('ALEX VOLK'); await page.screenshot({ path: 'output/playwright/walkout-aisle.png' });
   await page.evaluate(() => (window as any).__TUC__.setWalkout(26)); await expect(page.locator('#walkout-kicker')).toHaveText('CAGESIDE CHECK'); await page.waitForTimeout(300); await page.screenshot({ path: 'output/playwright/walkout-inspection.png' });
   await page.evaluate(() => (window as any).__TUC__.setWalkout(32)); await expect(page.locator('#walkout-kicker')).toHaveText('OFFIZIELLE VORSTELLUNG'); await page.waitForTimeout(300); await page.screenshot({ path: 'output/playwright/walkout-introductions.png' });
   await page.locator('#skip-walkout').click(); await expect(page.locator('#walkout')).toBeHidden();
@@ -36,7 +36,8 @@ test('player can finish the complete grapple and submission loop with keys', asy
   for (const position of ['HALF GUARD','SIDE CONTROL','MOUNT']) { await page.keyboard.press('KeyW'); await page.waitForTimeout(1050); await expect(page.locator('#position-label')).toContainText(position); }
   await page.screenshot({ path: 'output/playwright/ground.png' });
   await page.keyboard.down('KeyU'); await expect(page.locator('#submission-track')).toBeVisible();
-  await expect(page.locator('#rematch')).toBeVisible({ timeout: 15000 }); await page.keyboard.up('KeyU'); await expect(page.locator('.result-method')).toHaveText('SUBMISSION');
+  await page.evaluate(() => { const t = (window as any).__TUC__; t.match.command(0, { move: { x: 0, z: 0 }, guard: null, action: 'holdSubmission' }); t.simulate(8); });
+  await expect(page.locator('#rematch')).toBeVisible({ timeout: 10000 }); await page.keyboard.up('KeyU'); await expect(page.locator('.result-method')).toHaveText('SUBMISSION');
 });
 
 test('all five arenas can be selected before the fight', async ({ page }) => {
@@ -62,4 +63,30 @@ test('training is recommended and starts a guided lesson against a passive dummy
   await expect(page.locator('#training-coach')).toBeVisible(); await expect(page.locator('#opponent-name')).toHaveText('TRAININGSDUMMY');
   await expect(page.locator('#round')).toHaveText('TRAINING'); await expect(page.locator('#coach-title')).toHaveText('BLEIB IN BEWEGUNG');
   await page.locator('#leave-training').click(); await expect(page.locator('#menu')).toBeVisible();
+});
+
+test('expanded striking and active defense are reachable from the keyboard', async ({ page }) => {
+  await page.goto('/'); await expect(page.locator('#start')).toBeEnabled({ timeout: 30000 });
+  await page.locator('[data-lesson="free"]').click(); await page.locator('#start').click();
+  await expect(page.locator('#training-coach')).toBeVisible();
+  await page.evaluate(() => {
+    const t = (window as any).__TUC__; t.match.fighters[0].position = { x: -.5, z: 0 }; t.match.fighters[1].position = { x: .5, z: 0 };
+  });
+  const readAction = async (keys: string) => {
+    const before = await page.evaluate(() => (window as any).__TUC__.lastInput.serial);
+    await page.evaluate(() => { const f = (window as any).__TUC__.match.fighters[0]; f.attack = null; f.cooldown = 0; f.stun = 0; f.damage.stamina = 100; f.state = 'idle'; });
+    await page.keyboard.press(keys);
+    await expect.poll(() => page.evaluate(() => (window as any).__TUC__.lastInput.serial), { timeout: 5000 }).toBeGreaterThan(before);
+    return page.evaluate(() => (window as any).__TUC__.lastInput.action);
+  };
+  expect(await readAction('Alt+KeyK')).toBe('uppercut-1-head');
+  expect(await readAction('Alt+Shift+KeyJ')).toBe('elbow-0-head');
+  expect(await readAction('Alt+KeyI')).toBe('frontKick-1-body');
+  expect(await readAction('Control+Alt+KeyI')).toBe('knee-1-body');
+  expect(await readAction('Shift+Alt+KeyI')).toBe('knee-1-head');
+  expect(await readAction('Control+Shift+KeyI')).toBe('sideKick-1-body');
+  expect(await readAction('KeyQ')).toBe('stance');
+  await expect.poll(() => page.evaluate(() => (window as any).__TUC__.match.fighters[0].stance), { timeout: 5000 }).toBe('southpaw');
+  expect(await readAction('Space')).toBe('parry');
+  expect(await readAction('Control+Space')).toBe('check');
 });

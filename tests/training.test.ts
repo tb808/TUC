@@ -4,6 +4,13 @@ import { EMPTY_CONTROLS } from '../src/game/types';
 import { TRAINING_LESSONS, TrainingCoach } from '../src/game/training';
 
 describe('training mode', () => {
+  it('includes an advanced standing lesson and recognizes a stance switch', () => {
+    const lesson = TRAINING_LESSONS.find(item => item.id === 'advanced-striking')!;
+    const game = new Combat({}, true); game.start(); const coach = new TrainingCoach(lesson);
+    expect(lesson.steps.map(step => step.title)).toEqual(expect.arrayContaining(['Uppercut', 'Front-Kick', 'Knie zum Körper', 'Ellbogen']));
+    expect(coach.observe({ ...EMPTY_CONTROLS(), action: 'stance' }, game, [], 1 / 60)).toBe(true);
+    expect(coach.current?.title).toBe('Uppercut');
+  });
   it('advances a lesson only after the requested technique was performed', () => {
     const game = new Combat({}, true); game.start();
     const coach = new TrainingCoach(TRAINING_LESSONS[0]);

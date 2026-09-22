@@ -22,7 +22,7 @@ app.innerHTML = `
     <div class="mode-switch" role="group" aria-label="Spielmodus"><button id="mode-training" class="selected" aria-pressed="true"><small>EMPFOHLEN</small>TRAINING</button><button id="mode-fight" aria-pressed="false"><small>3 × 3 MIN</small>TESTKAMPF</button></div>
     <div class="mode-line"><span id="mode-number">01</span><strong id="mode-name">TRAININGSMODUS</strong><small id="mode-detail">OHNE GEGENWEHR</small></div>
     <section id="training-panel" class="training-select" aria-labelledby="training-select-label">
-      <div class="training-heading"><span id="training-select-label">WAS WILLST DU LERNEN?</span><span id="lesson-number">01 / 04</span></div>
+      <div class="training-heading"><span id="training-select-label">WAS WILLST DU LERNEN?</span><span id="lesson-number">01 / ${TRAINING_LESSONS.length.toString().padStart(2, '0')}</span></div>
       <div class="lesson-grid">${TRAINING_LESSONS.map((lesson, index) => `<button data-lesson="${lesson.id}" ${index === 0 ? 'class="selected" aria-pressed="true"' : 'aria-pressed="false"'}><strong>${lesson.name}</strong><span>${lesson.subtitle}</span></button>`).join('')}</div>
     </section>
     <div id="fight-settings" hidden>
@@ -54,7 +54,7 @@ app.innerHTML = `
   <div id="fight-message" role="status" aria-live="polite"></div>
   <aside id="training-coach" hidden aria-live="polite"><div class="coach-heading"><span>COACH</span><small id="coach-progress"></small></div><strong id="coach-title"></strong><p id="coach-instruction"></p><kbd id="coach-keys"></kbd><div class="coach-track"><i id="coach-track-fill"></i></div><button id="leave-training">TRAINING BEENDEN</button></aside>
   <div id="ground-context" hidden><span id="position-label"></span><div id="ground-compass" hidden><div class="ground-option up" data-ground-direction="advance"><kbd>W</kbd><span></span></div><div class="ground-option left" data-ground-direction="left"><kbd>A</kbd><span></span></div><div class="ground-center">POSITION</div><div class="ground-option right" data-ground-direction="right"><kbd>D</kbd><span></span></div><div class="ground-option down" data-ground-direction="reverse"><kbd>S</kbd><span></span></div></div><div id="submission-track" hidden><i></i></div><small id="position-help"></small></div>
-  <div id="fight-controls" hidden><span><kbd>W A S D</kbd> BEWEGEN / BODEN</span><span><kbd>J K</kbd> SCHLAGEN</span><span><kbd>U I</kbd> TRETEN</span><span><kbd>SPACE</kbd> DECKEN</span><span><kbd>G / ⇧G</kbd> CLINCH / TAKEDOWN</span><button id="pause-button"><kbd>ESC</kbd> PAUSE</button></div>
+  <div id="fight-controls" hidden><span><kbd>W A S D</kbd> BEWEGEN / SLIP</span><span><kbd>J K</kbd> HÄNDE</span><span><kbd>U I</kbd> BEINE</span><span><kbd>Q</kbd> AUSLAGE</span><span><kbd>SPACE</kbd> DECKUNG / PARADE</span><span><kbd>G / ⇧G</kbd> GRAPPLING</span><button id="pause-button"><kbd>ESC</kbd> PAUSE</button></div>
   <footer id="footer"><span>TYLER’S ULTIMATE CHAMPIONSHIP <b>© 2026</b></span><div><button id="sound-toggle" aria-label="Ton umschalten">TON AN</button><span> / </span><label>GRAFIK <select id="quality" aria-label="Grafikqualität"><option value="high">HOCH</option><option value="low">NIEDRIG</option></select></label></div><span>IN DEVELOPMENT <i>●</i></span></footer>
   <div id="modal" class="modal" hidden><section id="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"></section></div>
   <pre id="debug" hidden></pre>`;
@@ -64,8 +64,9 @@ let game = new Combat(), ai = new OpponentAI(3), view: ArenaView, level = 3, are
 let mode: GameMode = 'training', lessonId = TRAINING_LESSONS[0].id, coach: TrainingCoach | null = null, playerInput: Controls = EMPTY_CONTROLS();
 let messageTime = 0, last = performance.now(), accumulator = 0, hitStop = 0, renderTime = 0, breathTime = 0;
 let walkoutElapsed: number | null = null, walkoutStage: WalkoutStage | null = null;
+let observedAction: string | null = null, observedActionSerial = 0;
 const audio = new FightAudio();
-const controlsHTML = `<div class="control-grid"><div><kbd>W A S D</kbd><strong>Bewegen</strong><span>W / S in die Tiefe, A / D seitlich</span></div><div><kbd>J / K</kbd><strong>Jab / Cross</strong><span>Shift: Haken · Strg: Körper</span></div><div><kbd>U / I</kbd><strong>Low-Kicks</strong><span>Strg: Body-Kick · Shift: High-Kick</span></div><div><kbd>LEERTASTE</kbd><strong>Hohe Deckung</strong><span>Strg: tief / Sprawl</span></div><div><kbd>G / SHIFT + G</kbd><strong>Clinch / Takedown</strong><span>R: lösen oder aufstehen</span></div><div><kbd>W A S D</kbd><strong>Bodenposition wechseln</strong><span>Einzeln drücken; das Boden-Menü zeigt jedes Ziel</span></div><div><kbd>J / K · U</kbd><strong>Ground & Pound / Armbar</strong><span>Armbar aus Mount · U halten zum Angriff</span></div><div><kbd>LEERTASTE · ESC</kbd><strong>Verteidigen / Pause</strong><span>Am Boden: Übergang / Armbar abwehren</span></div></div><p class="help-note">Achte auf deine Ausdauer: Leere Schläge kosten Kraft, saubere Treffer brauchen die richtige Distanz. Am Boden reicht ein einzelner Druck auf W, A, S oder D. Bei einer Armbar U halten; der Verteidiger hält die Leertaste. F3 öffnet die Diagnoseansicht.</p>`;
+const controlsHTML = `<div class="control-grid"><div><kbd>W A S D · Q</kbd><strong>Bewegen / Auslage</strong><span>Q wechselt orthodox / Southpaw</span></div><div><kbd>J / K</kbd><strong>Jab / Cross</strong><span>Shift: Haken · Strg: Körper · Alt: Uppercut</span></div><div><kbd>ALT + SHIFT + J / K</kbd><strong>Ellbogen</strong><span>Kurze Distanz; Strg wählt den Körper</span></div><div><kbd>U / I</kbd><strong>Round-Kicks</strong><span>Strg: Körper · Shift: Kopf</span></div><div><kbd>ALT + U / I</kbd><strong>Front-Kick / Knie</strong><span>Strg + Alt: Körperknie · Shift + Alt: Kopfknie</span></div><div><kbd>STRG + SHIFT + U / I</kbd><strong>Side-Kick</strong><span>Gerader harter Kick zum Körper</span></div><div><kbd>LEERTASTE</kbd><strong>Deckung / Timing</strong><span>Antippen: Parade · Strg antippen: Check / Kick-Catch</span></div><div><kbd>SPACE + A / D / S</kbd><strong>Slip / Pull</strong><span>Kopfbewegung öffnet ein Konterfenster</span></div><div><kbd>G / SHIFT + G</kbd><strong>Clinch / Takedown</strong><span>R: lösen oder aufstehen</span></div><div><kbd>W A S D</kbd><strong>Bodenposition wechseln</strong><span>Einzeln drücken; das Boden-Menü zeigt jedes Ziel</span></div><div><kbd>J / K · U</kbd><strong>Ground & Pound / Armbar</strong><span>Armbar aus Mount · U halten zum Angriff</span></div><div><kbd>LEERTASTE · ESC</kbd><strong>Verteidigen / Pause</strong><span>Am Boden: Übergang / Armbar abwehren</span></div></div><p class="help-note">Distanz und Standfestigkeit bestimmen die Wirkung. Paraden, Slips, Pulls und gefangene Kicks öffnen kurze Konterfenster. Am Boden reicht ein einzelner Druck auf W, A, S oder D. F3 öffnet die Diagnoseansicht.</p>`;
 function openModal(title: string, body: string, type: string) {
   returnFocus = document.activeElement as HTMLElement; modalType = type; keyboard.clear();
   el('modal-card').innerHTML = `<div class="eyebrow">TYLER’S ULTIMATE CHAMPIONSHIP</div><h2 id="modal-title">${title}</h2>${body}`;
@@ -102,7 +103,7 @@ function setMode(value: GameMode) {
 }
 function selectLesson(id: string) {
   const index = Math.max(0, TRAINING_LESSONS.findIndex(lesson => lesson.id === id)); lessonId = TRAINING_LESSONS[index].id;
-  el('lesson-number').textContent = `0${index + 1} / 04`;
+  el('lesson-number').textContent = `${String(index + 1).padStart(2, '0')} / ${String(TRAINING_LESSONS.length).padStart(2, '0')}`;
   document.querySelectorAll<HTMLButtonElement>('[data-lesson]').forEach(button => { const selected = button.dataset.lesson === lessonId; button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected)); });
 }
 function updateCoach(completedStep = false) {
@@ -157,7 +158,7 @@ el('modal').addEventListener('keydown', e => { if (e.key === 'Tab') { const butt
 function updateHUD() {
   el('timer').textContent = coach ? `${Math.floor(game.elapsed / 60)}:${Math.floor(game.elapsed % 60).toString().padStart(2, '0')}` : game.phase === 'break' ? `0:${Math.ceil(game.breakRemaining).toString().padStart(2, '0')}` : `${Math.floor(Math.ceil(game.remaining) / 60)}:${(Math.ceil(game.remaining) % 60).toString().padStart(2, '0')}`;
   el('round').textContent = coach ? 'TRAINING' : game.phase === 'break' ? 'RUNDENPAUSE' : `RUNDE ${game.round} / ${game.rules.rounds}`;
-  game.fighters.forEach((f, i) => { el(i ? 'opponent-stamina' : 'player-stamina').style.transform = `scaleX(${f.damage.stamina / 100})`; el(i ? 'opponent-state' : 'player-state').textContent = f.state === 'knockedDown' ? 'NIEDERSCHLAG' : f.stun > 0 ? 'ERSCHÜTTERT' : f.damage.stamina < 25 ? 'ERSCHÖPFT' : f.damage.leg > 50 ? 'BEIN ANGESCHLAGEN' : 'AUSDAUER'; });
+  game.fighters.forEach((f, i) => { el(i ? 'opponent-stamina' : 'player-stamina').style.transform = `scaleX(${f.damage.stamina / 100})`; const condition = f.state === 'knockedDown' ? 'NIEDERSCHLAG' : f.stun > 0 ? 'ERSCHÜTTERT' : f.counterWindow > 0 ? 'KONTERFENSTER' : f.damage.stamina < 25 ? 'ERSCHÖPFT' : f.damage.leg > 50 ? 'BEIN ANGESCHLAGEN' : 'AUSDAUER'; el(i ? 'opponent-state' : 'player-state').textContent = `${condition} · ${f.stance === 'orthodox' ? 'ORTHODOX' : 'SOUTHPAW'}`; });
   const g = game.grapple; el('ground-context').hidden = !g || game.phase === 'finished';
   if (g) {
     el('position-label').textContent = g.mode === 'clinch' ? 'CLINCH' : g.mode === 'takedown' ? 'TAKEDOWN' : `${POSITION_LABELS[g.position].toUpperCase()} · ${g.top === 0 ? 'DU BIST OBEN' : 'DU BIST UNTEN'}`;
@@ -196,7 +197,9 @@ function frame(now: number) {
       accumulator += dt;
       while (accumulator >= 1 / 60) {
         if (active) {
-          playerInput = keyboard.read(game); game.command(0, playerInput); game.command(1, coach ? EMPTY_CONTROLS() : ai.update(game)); game.step(1 / 60);
+          playerInput = keyboard.read(game);
+          if (playerInput.action) { observedAction = playerInput.action; observedActionSerial++; }
+          game.command(0, playerInput); game.command(1, coach ? EMPTY_CONTROLS() : ai.update(game)); game.step(1 / 60);
           if (coach && coach.observe(playerInput, game, game.events, 1 / 60)) updateCoach(true);
         }
         view.physics.step(game); accumulator -= 1 / 60;
@@ -215,5 +218,5 @@ async function init() {
   catch (error) { el('load-error').hidden = false; el('load-error').textContent = `Die 3D-Ansicht konnte nicht starten. Bitte WebGL in Chrome oder Edge aktivieren und neu laden. ${error instanceof Error ? error.message : ''}`; el('start-label').textContent = '3D-START FEHLGESCHLAGEN'; console.error(error); }
 }
 // Development-only observability for automated real-browser integration tests.
-if (import.meta.env.DEV) Object.defineProperty(window, '__TUC__', { value: { get match() { return game; }, get view() { return view; }, get ai() { return ai; }, get walkout() { return walkoutElapsed === null ? null : walkoutAt(walkoutElapsed); }, setWalkout(seconds: number) { if (active && walkoutElapsed !== null) { walkoutElapsed = Math.max(0, Math.min(WALKOUT_DURATION - .01, seconds)); updateWalkout(); } }, simulate(seconds: number, bothAI = false) { const playerAI = new OpponentAI(5, seededRandom(441), 0); for (let i = 0; i < seconds * 60 && game.phase !== 'finished'; i++) { if (bothAI) game.command(0, playerAI.update(game)); game.command(1, ai.update(game)); game.step(1 / 60); } }, } });
+if (import.meta.env.DEV) Object.defineProperty(window, '__TUC__', { value: { get match() { return game; }, get view() { return view; }, get ai() { return ai; }, get lastInput() { return { action: observedAction, serial: observedActionSerial }; }, get walkout() { return walkoutElapsed === null ? null : walkoutAt(walkoutElapsed); }, setWalkout(seconds: number) { if (active && walkoutElapsed !== null) { walkoutElapsed = Math.max(0, Math.min(WALKOUT_DURATION - .01, seconds)); updateWalkout(); } }, simulate(seconds: number, bothAI = false) { const playerAI = new OpponentAI(5, seededRandom(441), 0); for (let i = 0; i < seconds * 60 && game.phase !== 'finished'; i++) { if (bothAI) game.command(0, playerAI.update(game)); game.command(1, ai.update(game)); game.step(1 / 60); } }, } });
 void init();

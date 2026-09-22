@@ -4,6 +4,7 @@ import type { CombatEvent, Controls, GroundPosition } from './types';
 type TrainingCheck =
   | { kind: 'move'; seconds: number }
   | { kind: 'guard'; seconds: number }
+  | { kind: 'action'; actions: string[] }
   | { kind: 'hit'; techniques: string[] }
   | { kind: 'grapple'; mode: 'clinch' | 'ground' }
   | { kind: 'position'; position: GroundPosition };
@@ -25,6 +26,15 @@ export const TRAINING_LESSONS: TrainingLesson[] = [
       { title: 'Cross', instruction: 'Setze mit der Schlaghand nach.', keys: 'K', check: { kind: 'hit', techniques: ['punch-1-head'] } },
       { title: 'Low-Kick', instruction: 'Greife das vordere Bein an.', keys: 'U ODER I', check: { kind: 'hit', techniques: ['kick-0-leg', 'kick-1-leg'] } },
       { title: 'Body-Kick', instruction: 'Wechsle die Ebene und triff den Körper.', keys: 'STRG + U / I', check: { kind: 'hit', techniques: ['kick-0-body', 'kick-1-body'] } },
+    ],
+  },
+  {
+    id: 'advanced-striking', name: 'Standkampf 2', subtitle: 'Auslage, Uppercuts, Knie und Ellbogen', steps: [
+      { title: 'Wechsle die Auslage', instruction: 'Wechsle zwischen orthodoxer und Southpaw-Auslage.', keys: 'Q', check: { kind: 'action', actions: ['stance'] } },
+      { title: 'Uppercut', instruction: 'Geh in die Nahdistanz und triff das Kinn.', keys: 'ALT + J / K', check: { kind: 'hit', techniques: ['uppercut-0-head', 'uppercut-1-head'] } },
+      { title: 'Front-Kick', instruction: 'Schaffe mit einem geraden Kick wieder Abstand.', keys: 'ALT + U / I', check: { kind: 'hit', techniques: ['frontKick-0-body', 'frontKick-1-body'] } },
+      { title: 'Knie zum Körper', instruction: 'Triff aus kurzer Distanz den Körper.', keys: 'STRG + ALT + U / I', check: { kind: 'hit', techniques: ['knee-0-body', 'knee-1-body'] } },
+      { title: 'Ellbogen', instruction: 'Schließe die Distanz und triff mit dem Ellbogen.', keys: 'SHIFT + ALT + J / K', check: { kind: 'hit', techniques: ['elbow-0-head', 'elbow-1-head'] } },
     ],
   },
   {
@@ -55,6 +65,8 @@ export class TrainingCoach {
     } else if (task.check.kind === 'guard') {
       this.held = input.guard === 'high' ? this.held + dt : 0;
       done = this.held >= task.check.seconds;
+    } else if (task.check.kind === 'action') {
+      done = !!input.action && task.check.actions.includes(input.action);
     } else if (task.check.kind === 'hit') {
       done = events.some(event => event.type === 'hit' && event.attacker === 0 && !event.blocked && task.check.kind === 'hit' && task.check.techniques.includes(event.technique));
     } else if (task.check.kind === 'grapple') {

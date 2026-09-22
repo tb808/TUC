@@ -130,58 +130,74 @@ export class FighterRig implements FighterVisual {
     if (this.initialized && dt <= 0) return;
     const speed = Math.hypot(f.velocity.x, f.velocity.z); this.gait += dt * speed * 7;
     const exhaustion = 1 - f.damage.stamina / 100, breath = Math.sin(time * (2.6 + exhaustion * 2)) * (.003 + exhaustion * .005);
+    const lead = f.stance === 'orthodox' ? 0 : 1, rear = lead ? 0 : 1, stanceSide = f.stance === 'orthodox' ? 1 : -1;
     this.root.position.set(f.position.x, 0, f.position.z); this.root.rotation.set(0, f.heading, 0);
     this.hips.position.set(0, .94 + breath - Math.abs(Math.sin(this.gait)) * .009 * Math.min(1, speed), 0);
-    this.hips.rotation.set(0, -.18, 0); this.spine.rotation.set(.025 + exhaustion * .065, .16, 0); this.head.rotation.set(.06, -.04, 0);
+    this.hips.rotation.set(0, -.18 * stanceSide, 0); this.spine.rotation.set(.025 + exhaustion * .065, .16 * stanceSide, 0); this.head.rotation.set(.06, -.04 * stanceSide, 0);
     const lateral = f.velocity.x * Math.cos(f.heading) - f.velocity.z * Math.sin(f.heading);
     this.spine.rotation.z -= lateral * .025;
     this.head.rotation.y += Math.sin(time * .7 + f.id) * .018;
     for (let i = 0; i < 2; i++) {
       const s = i ? -1 : 1;
-      this.arms[i].rotation.set(i ? -.73 : -.92, s * -.12, s * .15);
-      this.forearms[i].rotation.set(i ? -1.98 : -1.78, 0, s * -.12);
-      this.legs[i].rotation.set(i ? .17 : -.27, 0, s * .08);
+      const leading = i === lead;
+      this.arms[i].rotation.set(leading ? -.92 : -.73, s * -.12, s * .15);
+      this.forearms[i].rotation.set(leading ? -1.78 : -1.98, 0, s * -.12);
+      this.legs[i].rotation.set(leading ? -.27 : .17, 0, s * .08);
       this.shins[i].rotation.set(.3, 0, 0); this.feet[i].rotation.set(0, 0, 0);
     }
+    this.spine.rotation.z += Math.sin(time * 1.8 + f.id) * .006;
+    this.forearms[lead].rotation.z += Math.sin(time * 2.1 + f.id) * .012;
     if (f.guard) {
       this.spine.rotation.x += .06; this.head.rotation.x += .08;
       this.arms.forEach((b, i) => { b.rotation.x = f.guard === 'high' ? -1.02 : -.45; b.rotation.z = i ? -.09 : .09; });
       this.forearms.forEach(b => b.rotation.x = f.guard === 'high' ? -1.98 : -1.55);
     }
+    if (f.defenseTime > 0) {
+      const amount = smooth(clamp(f.defenseTime / (f.defense === 'parry' ? .18 : f.defense === 'check' ? .3 : .28), 0, 1));
+      if (f.defense === 'parry') { this.arms[lead].rotation.y += stanceSide * .48 * amount; this.forearms[lead].rotation.z -= stanceSide * .32 * amount; this.spine.rotation.y -= stanceSide * .18 * amount; }
+      if (f.defense === 'slipLeft' || f.defense === 'slipRight') { const direction = f.defense === 'slipLeft' ? -1 : 1; this.spine.rotation.z += direction * .32 * amount; this.head.rotation.z -= direction * .17 * amount; this.hips.position.x += direction * .08 * amount; }
+      if (f.defense === 'pull') { this.spine.rotation.x -= .31 * amount; this.head.rotation.x += .15 * amount; this.hips.position.z -= .11 * amount; }
+      if (f.defense === 'check') { this.legs[lead].rotation.x = -1.05 * amount; this.legs[lead].rotation.z = stanceSide * .48 * amount; this.shins[lead].rotation.x = 1.48 * amount; this.arms.forEach(b => b.rotation.x = -1.05); }
+    }
     if (f.attack) {
-      const a = f.attack, t = a.technique, side = t.hand, s = side ? -1 : 1;
-      const { extension, preparation } = strikeMotion(a);
-      const weight = extension;
+      const a = f.attack, t = a.technique, side = t.hand ? rear : lead, s = side ? -1 : 1;
+      const { extension, preparation } = strikeMotion(a), weight = extension;
+      const legStrike = ['kick', 'frontKick', 'sideKick', 'knee'].includes(t.kind);
       if (!grapple) {
-        this.hips.position.z = extension * (t.kind === 'kick' ? .03 : t.hand ? .18 : .12) - preparation * .024;
-        this.hips.position.x = s * (t.kind === 'kick' ? -.055 : .018) * extension;
-        this.hips.rotation.y += s * (preparation * .12 - extension * (t.kind === 'kick' ? .65 : .23));
+        this.hips.position.z = extension * (legStrike ? .03 : t.hand ? .18 : .12) - preparation * .024;
+        this.hips.position.x = s * (legStrike ? -.055 : .018) * extension;
+        this.hips.rotation.y += s * (preparation * .12 - extension * (t.kind === 'kick' || t.kind === 'sideKick' ? .65 : .23));
       }
-      this.spine.rotation.y += s * (preparation * .13 - extension * .34);
-      this.head.rotation.y -= this.spine.rotation.y * .45;
-      if (t.kind === 'kick') {
+      this.spine.rotation.y += s * (preparation * .13 - extension * .34); this.head.rotation.y -= this.spine.rotation.y * .45;
+      if (legStrike) {
         const chamber = Math.max(preparation * .75, extension);
-        this.legs[side].rotation.set(-chamber * (t.zone === 'head' ? 2.5 : t.zone === 'body' ? 1.9 : 1.12), -s * extension * .3, s * (.1 + extension * .23));
-        this.shins[side].rotation.x = .14 + preparation * 1.65 + (1 - extension) * chamber * .85;
-        this.feet[side].rotation.x = -.25 * extension;
-        this.spine.rotation.x -= extension * .18; this.spine.rotation.z -= s * extension * .19;
-        this.arms[side].rotation.x += extension * .4; this.arms[side].rotation.z += s * .32 * extension;
-        this.hips.position.y += extension * .025;
+        if (t.kind === 'frontKick') {
+          this.legs[side].rotation.set(-1.5 * chamber, 0, s * .08); this.shins[side].rotation.x = 1.8 * preparation + .12 * extension; this.feet[side].rotation.x = -.55 * extension;
+          this.hips.position.z += extension * .14; this.spine.rotation.x += extension * .07;
+        } else if (t.kind === 'sideKick') {
+          this.hips.rotation.y += s * extension * 1.05; this.legs[side].rotation.set(-1.42 * chamber, -s * 1.05 * extension, s * .32); this.shins[side].rotation.x = 1.65 * preparation + .08 * extension; this.feet[side].rotation.x = -.7 * extension;
+          this.spine.rotation.z -= s * extension * .28;
+        } else if (t.kind === 'knee') {
+          this.legs[side].rotation.set(-chamber * (t.zone === 'head' ? 2.18 : 1.62), 0, s * .16); this.shins[side].rotation.x = 1.95 - extension * .18; this.feet[side].rotation.x = .24;
+          this.hips.position.z += extension * .17; this.hips.position.y += extension * .06; this.spine.rotation.x += extension * .12;
+        } else {
+          this.legs[side].rotation.set(-chamber * (t.zone === 'head' ? 2.5 : t.zone === 'body' ? 1.9 : 1.12), -s * extension * .3, s * (.1 + extension * .23));
+          this.shins[side].rotation.x = .14 + preparation * 1.65 + (1 - extension) * chamber * .85; this.feet[side].rotation.x = -.25 * extension;
+          this.spine.rotation.x -= extension * .18; this.spine.rotation.z -= s * extension * .19;
+        }
+        this.arms[side].rotation.x += extension * .4; this.arms[side].rotation.z += s * .32 * extension; this.hips.position.y += extension * .025;
       } else {
-        this.arms[side].rotation.x -= preparation * .13;
-        this.arms[side].rotation.z += s * preparation * .08;
+        this.arms[side].rotation.x -= preparation * .13; this.arms[side].rotation.z += s * preparation * .08;
         if (t.kind === 'clinchPunch') { this.arms[side].rotation.x = -1.3; this.forearms[side].rotation.x = -1.4 + extension * .7; }
         if (t.kind === 'groundPunch') { this.arms[side].rotation.x = -1.2 + extension * .15; this.forearms[side].rotation.x = -1.6 + extension * 1.5; }
-        if (t.zone === 'body') { this.spine.rotation.x += weight * .19; this.hips.position.y -= weight * .045; }
-        else this.spine.rotation.x -= extension * .09;
-        if (!grapple) {
-          this.root.updateMatrixWorld(true);
-          const tip = strikeLocal(a);
+        if (t.kind === 'uppercut') { this.arms[side].rotation.x = -.35 - extension * .8; this.arms[side].rotation.z = s * (.2 - extension * .18); this.forearms[side].rotation.x = -1.82 + extension * .85; this.spine.rotation.x += .17 * preparation - .21 * extension; this.hips.position.y -= preparation * .05; }
+        if (t.kind === 'elbow') { this.arms[side].rotation.x = -1.2; this.arms[side].rotation.y = s * extension * .7; this.arms[side].rotation.z = s * (.25 + extension * .8); this.forearms[side].rotation.x = -2.18; this.spine.rotation.y -= s * extension * .55; }
+        if (t.zone === 'body') { this.spine.rotation.x += weight * .19; this.hips.position.y -= weight * .045; } else this.spine.rotation.x -= extension * .09;
+        if (!grapple && t.kind !== 'elbow') {
+          this.root.updateMatrixWorld(true); const tip = strikeLocal(a);
           const resting = new THREE.Vector3(0, -.289, 0); this.forearms[side].localToWorld(resting);
-          const target = this.root.localToWorld(new THREE.Vector3(tip.x, tip.y, tip.z));
-          // Follow the contact path without pulling the guard forward during the load phase.
-          resting.lerp(target, smooth(extension / .8));
-          const pole = new THREE.Vector3(s * (t.kind === 'hook' ? 1 : .65), t.kind === 'hook' ? .08 : -.7, -.1).applyQuaternion(this.root.quaternion);
+          const target = this.root.localToWorld(new THREE.Vector3(tip.x, tip.y, tip.z)); resting.lerp(target, smooth(extension / .8));
+          const pole = new THREE.Vector3(s * (t.kind === 'hook' ? 1 : .65), t.kind === 'uppercut' ? .8 : t.kind === 'hook' ? .08 : -.7, -.1).applyQuaternion(this.root.quaternion);
           solveLimb(this.arms[side], this.forearms[side], resting, pole, .3, .289);
         }
       }
@@ -230,7 +246,11 @@ export class FighterRig implements FighterVisual {
     }
     if (result?.winner === f.id) { this.arms.forEach((b, i) => { b.rotation.x = -2.9; b.rotation.z = i ? -.35 : .35; }); this.forearms.forEach(b => b.rotation.x = -.35); }
     this.spine.quaternion.multiply(impact);
-    this.head.rotation.x += f.reaction * .32; this.head.rotation.z += f.reaction * f.reactionSide * .25;
+    if (f.reactionZone === 'head') { this.head.rotation.x += f.reaction * (f.reactionKind === 'uppercut' || f.reactionKind === 'knee' ? -.26 : .28); this.head.rotation.z += f.reaction * f.reactionSide * (f.reactionKind === 'hook' || f.reactionKind === 'elbow' ? .42 : .22); }
+    else if (f.reactionZone === 'body') { this.spine.rotation.x += f.reaction * .34; this.spine.rotation.z += f.reaction * f.reactionSide * .12; this.hips.position.y -= f.reaction * .035; }
+    else { const struck = f.reactionSide > 0 ? 0 : 1; this.legs[struck].rotation.z += f.reactionSide * f.reaction * .24; this.hips.rotation.z -= f.reactionSide * f.reaction * .12; }
+    const cagePressure = Math.max(0, Math.hypot(f.position.x, f.position.z) - 4.05);
+    if (!grapple && cagePressure > 0) { this.spine.rotation.x -= cagePressure * .11; this.hips.position.z -= cagePressure * .04; if (!f.attack) this.arms.forEach((arm, i) => arm.rotation.z += (i ? -1 : 1) * cagePressure * .16); }
     // Blend complete poses, including getting up and ground transitions, without Euler flips.
     const grounded = !!grapple && grapple.mode !== 'clinch' || f.state === 'knockedDown' || !!result;
     this.skeleton.bones.forEach((b, i) => {
@@ -268,13 +288,14 @@ export class FighterRig implements FighterVisual {
     reach(this, 1, wrist.clone().add(new THREE.Vector3(-.025, .025, 0)), new THREE.Vector3(-1, .25, 0));
   }
   private plantFeet(f: Fighter, dt: number) {
-    const desired = [0, 1].map(i => this.root.localToWorld(new THREE.Vector3(i ? -.16 : .16, .062, i ? -.2 : .22)));
+    const lead = f.stance === 'orthodox' ? 0 : 1;
+    const desired = [0, 1].map(i => this.root.localToWorld(new THREE.Vector3(i ? -.16 : .16, .062, i === lead ? .22 : -.2)));
     const teleport = this.previousRoot.distanceTo(this.root.position) > .7;
     this.previousRoot.copy(this.root.position);
     if (!this.feetPlanted || teleport) {
       this.footTargets.forEach((p, i) => p.copy(desired[i])); this.feetPlanted = true; this.stepTime = 1;
     }
-    const kicking = f.attack?.technique.kind === 'kick' ? f.attack.technique.hand : -1;
+    const kicking = f.attack && ['kick', 'frontKick', 'sideKick', 'knee'].includes(f.attack.technique.kind) ? (f.attack.technique.hand ? (lead ? 0 : 1) : lead) : -1;
     if (kicking < 0) {
       if (this.stepTime >= 1) {
         const errors = this.footTargets.map((p, i) => p.distanceTo(desired[i]));

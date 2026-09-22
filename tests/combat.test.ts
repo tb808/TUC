@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Combat, canStrikeHit, groundMoveOptions, insideCage, scoreRound } from '../src/game/combat';
+import { Combat, canStrikeHit, groundMoveOptions, impactQuality, insideCage, scoreRound } from '../src/game/combat';
 import { DIFFICULTIES, STATS, TECHNIQUES } from '../src/game/config';
 import { OpponentAI, seededRandom } from '../src/game/ai';
 import { EMPTY_CONTROLS, type Attack, type FighterId } from '../src/game/types';
@@ -27,6 +27,53 @@ describe('Treffergeometrie und Timing', () => {
   it('exhaustion prevents initiating a costly kick', () => { const g = arrange(); g.fighters[0].damage.stamina = 0; act(g, 0, 'kick-0-head'); tick(g, .15); expect(g.fighters[0].attack).toBeNull(); });
   it('does not permit simultaneous attacks or immediate cancelling', () => { const g = arrange(); act(g, 0, 'kick-0-head'); tick(g, .08); act(g, 0, 'punch-1-head'); tick(g, .12); expect(g.fighters[0].attack?.technique.kind).toBe('kick'); });
   it('body and leg damage have distinct consequences', () => { const g = arrange(1.3); hit(g, 'kick-0-leg'); expect(g.fighters[1].damage.leg).toBeGreaterThan(0); expect(g.fighters[1].damage.head).toBe(0); });
+  it('defines distinct anatomical targets for the expanded standing arsenal', () => {
+    expect(TECHNIQUES['uppercut-1-head'].target).toBe('chin');
+    expect(TECHNIQUES['elbow-0-head'].target).toBe('temple');
+    expect(TECHNIQUES['knee-1-body'].target).toBe('liver');
+    expect(TECHNIQUES['frontKick-0-body'].target).toBe('solarPlexus');
+    expect(TECHNIQUES['sideKick-1-body'].target).toBe('ribs');
+  });
+  it('rewards clean range, a planted base and completing a stance switch', () => {
+    const g = arrange(.9), [a, b] = g.fighters, technique = TECHNIQUES['punch-1-head'];
+    const clean = impactQuality(a, b, technique);
+    a.velocity = { x: 4, z: 0 }; expect(impactQuality(a, b, technique)).toBeLessThan(clean);
+    a.velocity = { x: 0, z: 0 }; a.stanceSwitch = .2; expect(impactQuality(a, b, technique)).toBeLessThan(clean);
+    a.stanceSwitch = 0; b.position.x = 2.4; expect(impactQuality(a, b, technique)).toBeLessThan(clean);
+  });
+});
+
+describe('Aktive Verteidigung und Konter', () => {
+  it('switches stance as a committed action', () => {
+    const g = arrange(); const stamina = g.fighters[0].damage.stamina;
+    act(g, 0, 'stance'); tick(g, .02);
+    expect(g.fighters[0].stance).toBe('southpaw'); expect(g.fighters[0].stanceSwitch).toBeGreaterThan(0); expect(g.fighters[0].damage.stamina).toBeLessThan(stamina);
+  });
+  it('a timed parry nearly nullifies a hand strike and creates a counter window', () => {
+    const open = arrange(.9), parried = arrange(.9);
+    hit(open, 'punch-1-head'); act(parried, 1, 'parry'); act(parried, 0, 'punch-1-head'); tick(parried, .3);
+    const event = parried.drainEvents().find(e => e.type === 'hit');
+    expect(event?.type === 'hit' && event.defense).toBe('parry');
+    expect(parried.fighters[1].damage.head).toBeLessThan(open.fighters[1].damage.head * .08);
+    expect(parried.fighters[1].counterWindow).toBeGreaterThan(.4); expect(parried.fighters[0].stun).toBeGreaterThan(0);
+  });
+  it('slipping a straight avoids all damage and opens a counter', () => {
+    const g = arrange(.9); act(g, 1, 'slip-left'); act(g, 0, 'punch-1-head'); tick(g, .28);
+    expect(g.fighters[1].damage.head).toBe(0); expect(g.fighters[1].counterWindow).toBeGreaterThan(.3);
+    expect(g.drainEvents().some(e => e.type === 'message' && e.text.includes('KONTERFENSTER'))).toBe(true);
+  });
+  it('checking a low kick hurts the kicking leg while catching a body kick disrupts the attacker', () => {
+    const checked = arrange(1.15); act(checked, 1, 'check'); act(checked, 0, 'kick-1-leg'); tick(checked, .38);
+    expect(checked.fighters[0].damage.leg).toBeGreaterThan(0); expect(checked.fighters[1].damage.leg).toBeLessThan(1);
+    const caught = arrange(1.15); act(caught, 1, 'check'); act(caught, 0, 'kick-1-body'); tick(caught, .38);
+    expect(caught.fighters[0].stun).toBeGreaterThan(0); expect(caught.fighters[0].attack).toBeNull(); expect(caught.fighters[1].counterWindow).toBeGreaterThan(.4);
+  });
+  it('a strike in the earned counter window deals more damage', () => {
+    const ordinary = arrange(.9), counter = arrange(.9); counter.fighters[0].counterWindow = .7;
+    hit(ordinary, 'punch-1-head'); hit(counter, 'punch-1-head');
+    expect(counter.fighters[1].damage.head).toBeGreaterThan(ordinary.fighters[1].damage.head * 1.3);
+    expect(counter.fighters[0].counterWindow).toBe(0);
+  });
 });
 describe('Arena, Pause und Runden', () => {
   it('clamps positions against every octagonal side', () => { for (let i = 0; i < 360; i++) { const p = insideCage({ x: Math.cos(i) * 20, z: Math.sin(i) * 20 }); for (let j = 0; j < 8; j++) expect(p.x * Math.cos(j * Math.PI / 4) + p.z * Math.sin(j * Math.PI / 4)).toBeLessThanOrEqual(4.300001); } });

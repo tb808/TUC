@@ -14,7 +14,14 @@ export class OpponentAI {
     const input = EMPTY_CONTROLS();
     const d = distance(self.position, rival.position), dx = (rival.position.x - self.position.x) / Math.max(d, .01), dz = (rival.position.z - self.position.z) / Math.max(d, .01);
     const threat = rival.attack && rival.attack.elapsed >= p.reaction;
-    if (threat && this.random() < p.accuracy) { input.guard = rival.attack!.technique.zone === 'head' ? 'high' : 'low'; this.decision = 'Deckung lesen'; }
+    if (threat && this.random() < p.accuracy) {
+      const technique = rival.attack!.technique, roll = this.random();
+      input.guard = technique.zone === 'head' ? 'high' : 'low';
+      if (technique.kind === 'kick' && (technique.zone === 'leg' || technique.zone === 'body') && roll < p.accuracy * .48) { input.action = 'check'; this.decision = technique.zone === 'leg' ? 'Low-Kick checken' : 'Body-Kick fangen'; }
+      else if (['punch', 'uppercut'].includes(technique.kind) && technique.zone === 'head' && roll < p.accuracy * .34) { input.action = this.random() < .22 ? 'pull' : this.random() < .5 ? 'slip-left' : 'slip-right'; this.decision = 'Kopfbewegung'; }
+      else if (['punch', 'hook', 'uppercut', 'elbow'].includes(technique.kind) && roll < p.accuracy * .25) { input.action = 'parry'; this.decision = 'Parade'; }
+      else this.decision = 'Deckung lesen';
+    }
     const g = match.grapple;
     if (g) {
       if (g.mode === 'submission') { input.action = g.top === this.id ? 'holdSubmission' : undefined; input.guard = g.top !== this.id && this.random() < p.accuracy + .1 ? 'high' : null; this.decision = 'Armbar'; }
@@ -36,14 +43,20 @@ export class OpponentAI {
       else if (!input.guard && d < 1.75 && this.random() < p.aggression) {
         if (d < 1.4 && this.random() < p.grappling * .13) { input.action = this.random() < .65 ? 'takedown' : 'grapple'; this.decision = 'Grappling suchen'; }
         else {
-          const kick = d > 1.26 || this.random() < .23;
-          const zone = kick ? this.random() < .18 ? 'head' : this.random() < .5 ? 'body' : 'leg' : rival.guard === 'high' && this.random() < p.accuracy ? 'body' : 'head';
-          const kind = kick ? 'kick' : d < 1.05 && this.random() < .3 ? 'hook' : 'punch';
-          input.action = `${kind}-${this.hand++ % 2}-${zone}`; this.decision = kick ? 'Kick-Distanz' : 'Kombination';
+          const hand = this.hand++ % 2, roll = this.random();
+          const zone = rival.guard === 'high' && this.random() < p.accuracy ? 'body' : 'head';
+          if (d < .8 && roll < .22) { input.action = `${roll < .1 ? 'elbow' : 'knee'}-${hand}-${zone}`; this.decision = roll < .1 ? 'Ellbogen-Distanz' : 'Knie-Distanz'; }
+          else if (d < 1.02 && roll < .43) { input.action = `${roll < .28 ? 'uppercut' : 'hook'}-${hand}-${zone}`; this.decision = 'Kombination innen'; }
+          else if (d > 1.23 || roll < .25) {
+            const kickZone = this.random() < .18 ? 'head' : this.random() < .5 ? 'body' : 'leg';
+            const kind = kickZone === 'body' && roll < .12 ? 'frontKick' : kickZone === 'body' && roll < .18 ? 'sideKick' : 'kick';
+            input.action = `${kind}-${hand}-${kickZone}`; this.decision = kind === 'frontKick' ? 'Teep zur Distanz' : 'Kick-Distanz';
+          } else { input.action = `punch-${hand}-${zone}`; this.decision = self.counterWindow > 0 ? 'Konter nutzen' : 'Kombination'; }
           this.combo++;
           if (this.combo >= p.combo) { this.next += .25; this.combo = 0; }
         }
-      } else this.decision = 'Winkel und Distanz';
+      } else if (this.random() < .006 * p.spacing && self.cooldown <= 0) { input.action = 'stance'; this.decision = 'Auslage wechseln'; }
+      else this.decision = 'Winkel und Distanz';
     }
     this.current = input; return input;
   }
