@@ -8,6 +8,7 @@ import { ArenaView } from './render/scene';
 import { ARENAS } from './render/arenaDetails';
 import { EMPTY_CONTROLS, type Controls } from './game/types';
 import { TRAINING_LESSONS, TrainingCoach } from './game/training';
+import { walkoutAt, WALKOUT_DURATION, type WalkoutStage } from './game/walkout';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
@@ -45,6 +46,11 @@ app.innerHTML = `
     <div class="round-hud"><span id="round">RUNDE 1 / 3</span><strong id="timer">3:00</strong><small id="fight-level">PROFI</small></div>
     <div class="fighter-hud red"><div><small id="opponent-corner">ROTE ECKE</small><strong id="opponent-name">ALEX VOLK</strong></div><div class="stamina-track"><i id="opponent-stamina"></i></div><span id="opponent-state">BEREIT</span></div>
   </section>
+  <section id="walkout" hidden aria-live="polite">
+    <div class="walkout-live"><i></i> LIVE · FIGHT NIGHT</div>
+    <div class="walkout-card"><small id="walkout-kicker"></small><strong id="walkout-title"></strong><p id="walkout-detail"></p><div class="walkout-progress"><i id="walkout-progress-fill"></i></div></div>
+    <button id="skip-walkout">WALKOUT ÜBERSPRINGEN <span>→</span></button>
+  </section>
   <div id="fight-message" role="status" aria-live="polite"></div>
   <aside id="training-coach" hidden aria-live="polite"><div class="coach-heading"><span>COACH</span><small id="coach-progress"></small></div><strong id="coach-title"></strong><p id="coach-instruction"></p><kbd id="coach-keys"></kbd><div class="coach-track"><i id="coach-track-fill"></i></div><button id="leave-training">TRAINING BEENDEN</button></aside>
   <div id="ground-context" hidden><span id="position-label"></span><div id="ground-compass" hidden><div class="ground-option up" data-ground-direction="advance"><kbd>W</kbd><span></span></div><div class="ground-option left" data-ground-direction="left"><kbd>A</kbd><span></span></div><div class="ground-center">POSITION</div><div class="ground-option right" data-ground-direction="right"><kbd>D</kbd><span></span></div><div class="ground-option down" data-ground-direction="reverse"><kbd>S</kbd><span></span></div></div><div id="submission-track" hidden><i></i></div><small id="position-help"></small></div>
@@ -57,6 +63,7 @@ type GameMode = 'training' | 'fight';
 let game = new Combat(), ai = new OpponentAI(3), view: ArenaView, level = 3, arenaIndex = 0, active = false, modalType = '', returnFocus: HTMLElement | null = null;
 let mode: GameMode = 'training', lessonId = TRAINING_LESSONS[0].id, coach: TrainingCoach | null = null, playerInput: Controls = EMPTY_CONTROLS();
 let messageTime = 0, last = performance.now(), accumulator = 0, hitStop = 0, renderTime = 0, breathTime = 0;
+let walkoutElapsed: number | null = null, walkoutStage: WalkoutStage | null = null;
 const audio = new FightAudio();
 const controlsHTML = `<div class="control-grid"><div><kbd>W A S D</kbd><strong>Bewegen</strong><span>W / S in die Tiefe, A / D seitlich</span></div><div><kbd>J / K</kbd><strong>Jab / Cross</strong><span>Shift: Haken · Strg: Körper</span></div><div><kbd>U / I</kbd><strong>Low-Kicks</strong><span>Strg: Body-Kick · Shift: High-Kick</span></div><div><kbd>LEERTASTE</kbd><strong>Hohe Deckung</strong><span>Strg: tief / Sprawl</span></div><div><kbd>G / SHIFT + G</kbd><strong>Clinch / Takedown</strong><span>R: lösen oder aufstehen</span></div><div><kbd>W A S D</kbd><strong>Bodenposition wechseln</strong><span>Einzeln drücken; das Boden-Menü zeigt jedes Ziel</span></div><div><kbd>J / K · U</kbd><strong>Ground & Pound / Armbar</strong><span>Armbar aus Mount · U halten zum Angriff</span></div><div><kbd>LEERTASTE · ESC</kbd><strong>Verteidigen / Pause</strong><span>Am Boden: Übergang / Armbar abwehren</span></div></div><p class="help-note">Achte auf deine Ausdauer: Leere Schläge kosten Kraft, saubere Treffer brauchen die richtige Distanz. Am Boden reicht ein einzelner Druck auf W, A, S oder D. Bei einer Armbar U halten; der Verteidiger hält die Leertaste. F3 öffnet die Diagnoseansicht.</p>`;
 function openModal(title: string, body: string, type: string) {
@@ -68,6 +75,7 @@ function closeModal() { el('modal').hidden = true; modalType = ''; keyboard.clea
 function showHelp() { if (active && game.phase !== 'finished') game.paused = true; openModal('DEIN MOVE.', controlsHTML + '<button class="primary" id="close-help">VERSTANDEN <span>→</span></button>', 'help'); el('close-help').onclick = () => { closeModal(); if (active) game.paused = false; }; }
 function togglePause() {
   if (!active || game.phase === 'finished') { if (modalType === 'help') closeModal(); return; }
+  if (walkoutElapsed !== null) finishWalkout();
   if (game.paused) { game.paused = false; closeModal(); return; }
   game.paused = true;
   openModal('DURCHATMEN.', '<p class="modal-description">Dein Kampf ist pausiert.</p><button class="primary" id="resume">WEITERKÄMPFEN <span>→</span></button><div class="modal-actions"><button id="restart">Neu starten</button><button id="pause-help">Steuerung</button><button id="to-menu">Hauptmenü</button></div>', 'pause');
@@ -115,12 +123,28 @@ function start() {
   void audio.start().catch(() => { el('sound-toggle').textContent = 'TON NICHT VERFÜGBAR'; });
   const training = mode === 'training';
   game = new Combat(training ? { rounds: 1, roundSeconds: 86400 } : {}, training); ai = new OpponentAI(level); coach = training ? new TrainingCoach(TRAINING_LESSONS.find(lesson => lesson.id === lessonId) ?? TRAINING_LESSONS[0]) : null; active = true; closeModal(); keyboard.clear();
-  el('menu').hidden = true; el('arena-caption').hidden = true; el('hud').hidden = false; el('fight-controls').hidden = false; el('footer').hidden = true; el('arena').classList.remove('menu-view'); app.classList.add('in-fight');
+  el('menu').hidden = true; el('arena-caption').hidden = true; el('hud').hidden = false; el('fight-controls').hidden = !training; el('footer').hidden = true; el('arena').classList.remove('menu-view'); app.classList.add('in-fight');
   el('training-coach').hidden = !training; el('opponent-name').textContent = training ? 'TRAININGSDUMMY' : 'ALEX VOLK'; el('opponent-corner').textContent = training ? 'PASSIVER PARTNER' : 'ROTE ECKE';
-  el('fight-level').textContent = training ? (coach?.lesson.name.toUpperCase() ?? 'TRAINING') : DIFFICULTIES[level - 1].name.toUpperCase(); accumulator = 0; hitStop = 0; playerInput = EMPTY_CONTROLS(); game.start(); updateCoach(); view.renderer.domElement.focus({ preventScroll: true }); requestAnimationFrame(() => view.renderer.domElement.focus({ preventScroll: true }));
+  el('fight-level').textContent = training ? (coach?.lesson.name.toUpperCase() ?? 'TRAINING') : DIFFICULTIES[level - 1].name.toUpperCase(); accumulator = 0; hitStop = 0; playerInput = EMPTY_CONTROLS();
+  walkoutElapsed = training ? null : 0; walkoutStage = null; el('walkout').hidden = training; app.classList.toggle('walkout-active', !training);
+  if (training) game.start(); else updateWalkout();
+  updateCoach(); view.renderer.domElement.focus({ preventScroll: true }); requestAnimationFrame(() => view.renderer.domElement.focus({ preventScroll: true }));
 }
-function toMenu() { active = false; coach = null; game = new Combat(); keyboard.clear(); closeModal(); el('menu').hidden = false; el('arena-caption').hidden = false; el('hud').hidden = true; el('fight-controls').hidden = true; el('training-coach').hidden = true; el('footer').hidden = false; el('ground-context').hidden = true; el('fight-message').textContent = ''; el('arena').classList.add('menu-view'); app.classList.remove('in-fight'); }
+function updateWalkout() {
+  if (walkoutElapsed === null) return;
+  const presentation = walkoutAt(walkoutElapsed), beat = presentation.beat;
+  el('walkout-kicker').textContent = beat.kicker; el('walkout-title').textContent = beat.title; el('walkout-detail').textContent = beat.detail;
+  el('walkout-progress-fill').style.width = `${Math.min(100, walkoutElapsed / WALKOUT_DURATION * 100)}%`;
+  if (beat.stage !== walkoutStage) { walkoutStage = beat.stage; audio.walkoutCue(beat.stage, beat.corner); }
+}
+function finishWalkout() {
+  if (walkoutElapsed === null) return;
+  audio.stopWalkout(); walkoutElapsed = null; walkoutStage = null; app.classList.remove('walkout-active'); el('walkout').hidden = true; el('fight-controls').hidden = false;
+  game.start(); accumulator = 0; keyboard.clear();
+}
+function toMenu() { active = false; coach = null; walkoutElapsed = null; walkoutStage = null; game = new Combat(); keyboard.clear(); closeModal(); el('menu').hidden = false; el('arena-caption').hidden = false; el('hud').hidden = true; el('walkout').hidden = true; el('fight-controls').hidden = true; el('training-coach').hidden = true; el('footer').hidden = false; el('ground-context').hidden = true; el('fight-message').textContent = ''; el('arena').classList.add('menu-view'); app.classList.remove('in-fight', 'walkout-active'); }
 el('start').onclick = start; el('help-button').onclick = showHelp; el('controls-link').onclick = showHelp; el('pause-button').onclick = togglePause;
+el('skip-walkout').onclick = finishWalkout;
 el('mode-training').onclick = () => setMode('training'); el('mode-fight').onclick = () => setMode('fight'); el('leave-training').onclick = toMenu;
 document.querySelectorAll<HTMLButtonElement>('[data-lesson]').forEach(button => button.onclick = () => selectLesson(button.dataset.lesson!));
 el('difficulty-down').onclick = () => setLevel(level - 1); el('difficulty-up').onclick = () => setLevel(level + 1); el('difficulty').onchange = () => setLevel(Number(el<HTMLSelectElement>('difficulty').value));
@@ -164,6 +188,10 @@ function frame(now: number) {
   const frameDt = Math.max(0, (now - last) / 1000), dt = Math.min(.25, frameDt); last = now;
   if (!game.paused) {
     if (hitStop > 0) hitStop -= dt;
+    else if (active && walkoutElapsed !== null) {
+      walkoutElapsed += dt; updateWalkout();
+      if (walkoutElapsed >= WALKOUT_DURATION) finishWalkout();
+    }
     else {
       accumulator += dt;
       while (accumulator >= 1 / 60) {
@@ -175,9 +203,9 @@ function frame(now: number) {
       }
     }
     messageTime -= dt; if (messageTime <= 0) el('fight-message').textContent = '';
-    breathTime += dt; if (breathTime > 2.2 && active) { breathTime = 0; audio.breath(1 - game.fighters[0].damage.stamina / 100); }
+    breathTime += dt; if (breathTime > 2.2 && active && walkoutElapsed === null) { breathTime = 0; audio.breath(1 - game.fighters[0].damage.stamina / 100); }
   }
-  events(); view.draw(game, dt, !active, game.paused || hitStop > 0, frameDt);
+  events(); view.draw(game, dt, !active, game.paused || hitStop > 0, frameDt, walkoutElapsed === null ? null : walkoutAt(walkoutElapsed));
   renderTime += dt; if (renderTime > .08) { updateHUD(); renderTime = 0; }
   requestAnimationFrame(frame);
 }
@@ -187,5 +215,5 @@ async function init() {
   catch (error) { el('load-error').hidden = false; el('load-error').textContent = `Die 3D-Ansicht konnte nicht starten. Bitte WebGL in Chrome oder Edge aktivieren und neu laden. ${error instanceof Error ? error.message : ''}`; el('start-label').textContent = '3D-START FEHLGESCHLAGEN'; console.error(error); }
 }
 // Development-only observability for automated real-browser integration tests.
-if (import.meta.env.DEV) Object.defineProperty(window, '__TUC__', { value: { get match() { return game; }, get view() { return view; }, get ai() { return ai; }, simulate(seconds: number, bothAI = false) { const playerAI = new OpponentAI(5, seededRandom(441), 0); for (let i = 0; i < seconds * 60 && game.phase !== 'finished'; i++) { if (bothAI) game.command(0, playerAI.update(game)); game.command(1, ai.update(game)); game.step(1 / 60); } }, } });
+if (import.meta.env.DEV) Object.defineProperty(window, '__TUC__', { value: { get match() { return game; }, get view() { return view; }, get ai() { return ai; }, get walkout() { return walkoutElapsed === null ? null : walkoutAt(walkoutElapsed); }, setWalkout(seconds: number) { if (active && walkoutElapsed !== null) { walkoutElapsed = Math.max(0, Math.min(WALKOUT_DURATION - .01, seconds)); updateWalkout(); } }, simulate(seconds: number, bothAI = false) { const playerAI = new OpponentAI(5, seededRandom(441), 0); for (let i = 0; i < seconds * 60 && game.phase !== 'finished'; i++) { if (bothAI) game.command(0, playerAI.update(game)); game.command(1, ai.update(game)); game.step(1 / 60); } }, } });
 void init();

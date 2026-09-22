@@ -122,16 +122,19 @@ export class ArenaEnvironment {
       for (let spot = 0; spot < 48; spot++) {
         const angle = Math.PI * .93 + (spot / 47) * Math.PI * 1.14;
         const radius = 7.65 + row * 1.05;
-        this.spectators.push({ x: Math.cos(angle) * radius, y: .2 + row * .43, z: Math.sin(angle) * radius, angle: -angle - Math.PI / 2, phase: row * 2.1 + spot * .73, energy: .35 + ((spot * 17 + row * 11) % 61) / 100 });
+        const x = Math.cos(angle) * radius, z = Math.sin(angle) * radius;
+        // Leave two broadcast aisles clear for the red- and blue-corner walkouts.
+        if (Math.abs(Math.abs(x) - 6.8) < 1.05 && z < .8) continue;
+        this.spectators.push({ x, y: .2 + row * .43, z, angle: -angle - Math.PI / 2, phase: row * 2.1 + spot * .73, energy: .35 + ((spot * 17 + row * 11) % 61) / 100 });
       }
     }
     const seats = new THREE.InstancedMesh(new THREE.BoxGeometry(.38, .18, .34), seat, this.spectators.length);
     this.spectators.forEach((p, i) => { this.transform.position.set(p.x, p.y - .25, p.z); this.transform.rotation.set(0, p.angle, 0); this.transform.updateMatrix(); seats.setMatrixAt(i, this.transform.matrix); });
     this.root.add(seats);
     for (const x of [-6.8, 6.8]) {
-      const stair = new THREE.Mesh(new THREE.BoxGeometry(1.05, 2.05, 5.8), new THREE.MeshStandardMaterial({ color: '#171f22', roughness: .82 }));
-      stair.position.set(x, .55, -8.9); stair.rotation.x = -.12; this.root.add(stair);
-      for (let y = 0; y < 5; y++) { const edge = new THREE.Mesh(new THREE.BoxGeometry(1.08, .035, 5.1 - y * .62), new THREE.MeshBasicMaterial({ color: '#667075' })); edge.position.set(x, -.25 + y * .42, -8.62 - y * .28); this.root.add(edge); }
+      const aisle = new THREE.Mesh(new THREE.BoxGeometry(1.35, .08, 10.8), new THREE.MeshStandardMaterial({ color: '#11171a', roughness: .78 }));
+      aisle.position.set(x, -.31, -5.25); this.root.add(aisle);
+      for (const side of [-1, 1]) { const edge = new THREE.Mesh(new THREE.BoxGeometry(.035, .025, 10.6), new THREE.MeshBasicMaterial({ color: '#9db55e' })); edge.position.set(x + side * .62, -.25, -5.25); this.root.add(edge); }
     }
     const barrier = new THREE.Mesh(new THREE.CylinderGeometry(7.02, 7.02, .72, 64, 1, true, Math.PI * .93, Math.PI * 1.14), new THREE.MeshStandardMaterial({ color: '#101619', metalness: .4, roughness: .62, side: THREE.DoubleSide }));
     barrier.rotation.y = Math.PI / 2; barrier.position.y = .05; this.root.add(barrier);

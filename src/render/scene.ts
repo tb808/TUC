@@ -8,6 +8,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { surfaceTexture } from './materials';
 import { arenaDetails, ARENAS, type ArenaEnvironment } from './arenaDetails';
 import { smooth } from '../game/motion';
+import type { WalkoutPresentation } from '../game/walkout';
 
 function canvasTexture(width: number, height: number, draw: (c: CanvasRenderingContext2D) => void) { const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height; const c = canvas.getContext('2d')!; draw(c); const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture; }
 export class ArenaView {
@@ -17,6 +18,8 @@ export class ArenaView {
   private particles: { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }[] = [];
   private cagePanels: THREE.Mesh[] = []; private target = new THREE.Vector3(0, .85, 0); private look = this.target.clone();
   private contactShadows: THREE.Mesh[] = [];
+  private walkoutStaff = new THREE.Group(); private announcer: THREE.Group; private referee: THREE.Group;
+  private walkoutCameraStage = '';
   private environment!: ArenaEnvironment;
   fps = 60; quality = 'high';
   constructor(container: HTMLElement) {
@@ -35,6 +38,10 @@ export class ArenaView {
     const rim = new THREE.DirectionalLight('#c3d9ff', 2.4); rim.position.set(3, 5, -5); this.scene.add(rim);
     const fill = new THREE.DirectionalLight('#e1e9f3', .65); fill.position.set(3, 3, 6); this.scene.add(fill);
     this.buildArena(); this.environment = arenaDetails(this.scene); batchRigidParts(this.scene); this.rigs.forEach(r => this.scene.add(r.root));
+    this.announcer = this.staffFigure('#17191d', '#d1ef71'); this.referee = this.staffFigure('#202326', '#202326');
+    this.walkoutStaff.add(this.announcer, this.referee);
+    for (const color of ['#242a2c', '#182738', '#2b2020', '#5b1f24']) this.walkoutStaff.add(this.staffFigure(color, color));
+    this.scene.add(this.walkoutStaff); this.walkoutStaff.visible = false;
     const shadowTexture = canvasTexture(128, 128, c => {
       const gradient = c.createRadialGradient(64, 64, 2, 64, 64, 64); gradient.addColorStop(0, '#0000008c'); gradient.addColorStop(.38, '#0000004d'); gradient.addColorStop(1, '#00000000'); c.fillStyle = gradient; c.fillRect(0, 0, 128, 128);
     });
@@ -54,6 +61,19 @@ export class ArenaView {
     this.environment.setArena(index);
     this.light.color.set(theme.id === 'neon-district' ? '#ffd9f8' : theme.id === 'alpine-crown' ? '#e4f8ff' : theme.id === 'imperial-dome' ? '#ffe1ae' : '#fff0e2');
     this.renderer.toneMappingExposure = theme.id === 'imperial-dome' ? 1.08 : theme.id === 'neon-district' ? .92 : 1;
+  }
+  private staffFigure(shirtColor: string, sleeveColor: string) {
+    const group = new THREE.Group(), skin = new THREE.MeshStandardMaterial({ color: '#936b54', roughness: .82 });
+    const shirt = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: .72 });
+    const sleeve = new THREE.MeshStandardMaterial({ color: sleeveColor, roughness: .75 });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(.11, 12, 8), skin); head.position.y = 1.65; group.add(head);
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(.19, .6, 5, 10), shirt); body.position.y = 1.13; group.add(body);
+    for (const side of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(.045, .48, 4, 8), sleeve); arm.position.set(side * .24, 1.23, 0); arm.rotation.z = side * .12; group.add(arm);
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(.06, .62, 4, 8), new THREE.MeshStandardMaterial({ color: '#111518', roughness: .9 })); leg.position.set(side * .09, .48, 0); group.add(leg);
+    }
+    group.traverse(o => { if (o instanceof THREE.Mesh) o.castShadow = true; });
+    return group;
   }
   private buildArena() {
     const dark = new THREE.MeshStandardMaterial({ color: '#1c2421', roughness: .82, metalness: .2 });
@@ -105,30 +125,78 @@ export class ArenaView {
       this.particles.push({ mesh, velocity: new THREE.Vector3((Math.random() - .5) * 2, .8 + Math.random(), (Math.random() - .5) * 2), life: .35 });
     }
   }
-  draw(match: Combat, dt: number, menu: boolean, frozen = false, frameDt = dt) {
+  draw(match: Combat, dt: number, menu: boolean, frozen = false, frameDt = dt, walkout: WalkoutPresentation | null = null) {
     this.fps += (1 / Math.max(.001, frameDt) - this.fps) * .025;
-    if (!frozen) this.clock += dt;
+    if (!frozen || walkout) this.clock += dt;
     this.environment.update(this.clock);
     this.rigs.forEach((rig, i) => {
-      rig.update(match.fighters[i], match.grapple, this.clock, frozen ? 0 : dt, this.physics.rotation(i), match.result);
-      this.contactShadows[i].position.x = match.fighters[i].position.x; this.contactShadows[i].position.z = match.fighters[i].position.z;
+      const presentationPose = walkout?.fighters[i];
+      const fighter = presentationPose ? { ...match.fighters[i], position: presentationPose.position, heading: presentationPose.heading, velocity: presentationPose.moving ? { x: 0, z: 1.25 } : { x: 0, z: 0 } } : match.fighters[i];
+      rig.root.visible = presentationPose?.visible ?? true;
+      rig.update(fighter, walkout ? null : match.grapple, this.clock, frozen && !walkout ? 0 : dt, this.physics.rotation(i), walkout ? null : match.result);
+      this.contactShadows[i].visible = rig.root.visible;
+      this.contactShadows[i].position.x = fighter.position.x; this.contactShadows[i].position.z = fighter.position.z;
       this.contactShadows[i].scale.setScalar(match.grapple?.mode === 'ground' ? 1.5 : 1);
     });
-    if (!frozen && match.grapple?.mode === 'submission') {
+    if (!frozen && !walkout && match.grapple?.mode === 'submission') {
       const top = match.grapple.top;
       this.rigs[top].holdSubmission(this.rigs[top ? 0 : 1], smooth(match.grapple.timer / .4));
     }
-    const [a, b] = match.fighters, middle = new THREE.Vector3((a.position.x + b.position.x) / 2, match.grapple && match.grapple.mode !== 'clinch' ? .45 : .95, (a.position.z + b.position.z) / 2);
+    const [a, b] = walkout ? walkout.fighters.map((fighter, id) => ({ ...match.fighters[id], position: fighter.position })) as typeof match.fighters : match.fighters;
+    const grounded = !walkout && !!match.grapple && match.grapple.mode !== 'clinch';
+    const middle = new THREE.Vector3((a.position.x + b.position.x) / 2, grounded ? .42 : 1.02, (a.position.z + b.position.z) / 2);
     const distance = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
-    const zoom = menu ? 17 : clamp(5.3 + distance * .7, 6.2, 12.8);
+    const zoom = menu ? 17 : grounded ? clamp(4.15 + distance * .55, 4.65, 7.4) : clamp(4.45 + distance * .72, 5.2, 11.2);
     const focus = middle.clone(); if (menu) focus.y = 3.2;
-    const desired = new THREE.Vector3(middle.x * .65 + (menu ? 5.1 : .3), menu ? 9.3 : 2.9 + distance * .13, middle.z * .65 + zoom);
-    this.camera.position.lerp(desired, 1 - Math.exp(-dt * 2)); this.look.lerp(focus, 1 - Math.exp(-dt * 4));
+    const targetFov = menu ? 39 : walkout ? 41 : grounded ? 36 : 37;
+    const fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 1 - Math.exp(-dt * 5));
+    if (Math.abs(fov - this.camera.fov) > .001) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
+    const desired = new THREE.Vector3(
+      middle.x * .78 + (menu ? 5.1 : .18),
+      menu ? 9.3 : grounded ? 2.22 + distance * .08 : 2.45 + distance * .1,
+      middle.z * .78 + zoom,
+    );
+    let cameraCut = false;
+    if (walkout) {
+      const stage = walkout.beat.stage, featured = walkout.beat.corner === undefined ? null : walkout.fighters[walkout.beat.corner];
+      cameraCut = stage !== this.walkoutCameraStage; this.walkoutCameraStage = stage;
+      if (stage === 'broadcast') { desired.set(8.8, 6.4, 10.5); focus.set(0, 1.2, 0); }
+      else if (stage.endsWith('check')) { desired.set(featured?.position.x ?? 0, 1.75, (featured?.position.z ?? 0) + 2.15); focus.set(featured?.position.x ?? 0, 1.18, featured?.position.z ?? 0); }
+      else if (stage.endsWith('walk')) { desired.set(featured?.position.x ?? 0, 1.72, (featured?.position.z ?? 0) + 2.5); focus.set(featured?.position.x ?? 0, 1.05, featured?.position.z ?? 0); }
+      else if (stage.endsWith('inspection')) { const side = (featured?.position.x ?? 1) > 0 ? 1 : -1; desired.set((featured?.position.x ?? 0) + side * 1.1, 1.72, (featured?.position.z ?? 0) + 1.9); focus.set(featured?.position.x ?? 0, 1.18, featured?.position.z ?? 0); }
+      else if (stage.endsWith('entry')) { const side = (featured?.position.x ?? 1) > 0 ? 1 : -1; desired.set(side * 7.2, 3.0, 5.1); focus.set(featured?.position.x ?? 0, 1, featured?.position.z ?? 0); }
+      else { desired.set(0, 2.75, 8.1); focus.set(0, 1.05, 0); }
+    } else this.walkoutCameraStage = '';
+    // UFC-style medium framing: close enough to read strikes, responsive enough for footwork.
+    if (cameraCut) { this.camera.position.copy(desired); this.look.copy(focus); }
+    else { this.camera.position.lerp(desired, 1 - Math.exp(-dt * (menu ? 2 : walkout ? 2.6 : 4.2))); this.look.lerp(focus, 1 - Math.exp(-dt * (menu ? 4 : 7))); }
     this.shake *= Math.exp(-dt * 18);
     this.target.copy(this.look).add(new THREE.Vector3(Math.sin(this.clock * 110) * this.shake, Math.cos(this.clock * 93) * this.shake * .7, 0)); this.camera.lookAt(this.target);
-    for (const panel of this.cagePanels) (panel.material as THREE.MeshStandardMaterial).opacity = panel.position.z > middle.z + .8 ? .065 : .43;
+    for (const panel of this.cagePanels) {
+      const corner = walkout?.beat.corner;
+      const gateOpen = !!walkout && corner !== undefined && (walkout.beat.stage.endsWith('entry') || walkout.beat.stage.endsWith('inspection')) && (corner === 1 ? panel.position.x > 3.6 : panel.position.x < -3.6);
+      (panel.material as THREE.MeshStandardMaterial).opacity = gateOpen ? .025 : panel.position.z > middle.z + .8 ? .065 : .43;
+    }
+    this.updateWalkoutStaff(walkout);
     for (let i = this.particles.length - 1; i >= 0; i--) { const p = this.particles[i]; p.life -= dt; p.velocity.y -= dt * 5; p.mesh.position.addScaledVector(p.velocity, dt); (p.mesh.material as THREE.MeshBasicMaterial).opacity = p.life * 2; if (p.life <= 0) { this.scene.remove(p.mesh); p.mesh.geometry.dispose(); (p.mesh.material as THREE.Material).dispose(); this.particles.splice(i, 1); } }
     this.hitMarkers.forEach((m, i) => { const f = match.fighters[i]; m.visible = this.debug && !!f.attack; if (f.attack) { const tip = strikeTip(f, f.attack); m.position.set(tip.x, f.attack.technique.zone === 'head' ? 1.68 : f.attack.technique.zone === 'body' ? 1.2 : .5, tip.z); } });
     this.renderer.render(this.scene, this.camera);
+  }
+  private updateWalkoutStaff(walkout: WalkoutPresentation | null) {
+    this.walkoutStaff.visible = !!walkout;
+    if (!walkout) return;
+    const stage = walkout.beat.stage, featured = walkout.beat.corner === undefined ? null : walkout.fighters[walkout.beat.corner];
+    this.announcer.visible = stage === 'introductions'; this.announcer.position.set(0, 0, .25); this.announcer.rotation.y = Math.PI;
+    this.referee.visible = stage === 'instructions' || stage === 'corners'; this.referee.position.set(0, 0, -.2); this.referee.rotation.y = Math.PI;
+    const entourage = this.walkoutStaff.children.slice(2) as THREE.Group[];
+    const showTeam = !!featured && (stage.endsWith('walk') || stage.endsWith('check') || stage.endsWith('inspection'));
+    entourage.forEach((person, index) => {
+      person.visible = showTeam;
+      if (!featured) return;
+      const walking = stage.endsWith('walk');
+      const offsets = [[-.34, -1], [.34, -1.05], [-.52, -1.75], [.52, -1.7]][index];
+      person.position.set(featured.position.x + offsets[0], 0, featured.position.z + (walking ? offsets[1] : index === 3 ? .15 : offsets[1] * .45));
+      person.rotation.y = walking ? 0 : index === 3 ? Math.PI : 0;
+    });
   }
 }

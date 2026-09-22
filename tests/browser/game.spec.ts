@@ -8,6 +8,12 @@ test('menu, keyboard combat, pause, full match end and rematch', async ({ page }
   await page.locator('#difficulty-down').click(); await page.locator('#difficulty-down').click(); await expect(page.locator('#difficulty-name')).toHaveText('Einsteiger');
   await page.locator('#controls-link').click(); await expect(page.locator('#modal')).toBeVisible(); await page.locator('#close-help').click();
   await page.locator('#start').click(); await expect(page.locator('#hud')).toBeVisible();
+  await expect(page.locator('#walkout')).toBeVisible(); await expect(page.locator('#walkout-title')).toHaveText('THE PROVING GROUND');
+  await page.waitForTimeout(3500); await expect(page.locator('#walkout-title')).toHaveText('LETZTE FREIGABE'); await page.screenshot({ path: 'output/playwright/walkout-check.png' });
+  await page.waitForTimeout(2500); await expect(page.locator('#walkout-title')).toHaveText('ALEX VOLK'); await page.screenshot({ path: 'output/playwright/walkout-aisle.png' });
+  await page.evaluate(() => (window as any).__TUC__.setWalkout(26)); await expect(page.locator('#walkout-kicker')).toHaveText('CAGESIDE CHECK'); await page.waitForTimeout(300); await page.screenshot({ path: 'output/playwright/walkout-inspection.png' });
+  await page.evaluate(() => (window as any).__TUC__.setWalkout(32)); await expect(page.locator('#walkout-kicker')).toHaveText('OFFIZIELLE VORSTELLUNG'); await page.waitForTimeout(300); await page.screenshot({ path: 'output/playwright/walkout-introductions.png' });
+  await page.locator('#skip-walkout').click(); await expect(page.locator('#walkout')).toBeHidden();
   await page.keyboard.down('KeyD'); await page.waitForTimeout(650); await page.keyboard.up('KeyD');
   await page.keyboard.press('KeyJ'); await page.waitForTimeout(300); await page.keyboard.press('KeyK');
   await page.waitForTimeout(500); await page.screenshot({ path: 'output/playwright/fight.png' });
@@ -22,7 +28,7 @@ test('menu, keyboard combat, pause, full match end and rematch', async ({ page }
   expect(errors).toEqual([]);
 });
 test('player can finish the complete grapple and submission loop with keys', async ({ page }) => {
-  await page.goto('/'); await expect(page.locator('#start')).toBeEnabled({ timeout: 30000 }); await page.locator('#mode-fight').click(); await page.locator('#start').click();
+  await page.goto('/'); await expect(page.locator('#start')).toBeEnabled({ timeout: 30000 }); await page.locator('#mode-fight').click(); await page.locator('#start').click(); await page.locator('#skip-walkout').click();
   await page.evaluate(() => { const t = (window as any).__TUC__; t.ai.update = () => ({ move: { x: 0, z: 0 }, guard: null }); t.match.fighters[0].position.x = -.5; t.match.fighters[1].position.x = .5; });
   await page.keyboard.press('KeyG'); await page.waitForTimeout(150); await expect(page.locator('#position-label')).toHaveText('CLINCH');
   await page.keyboard.press('Shift+KeyG'); await page.waitForTimeout(1000); await expect(page.locator('#position-label')).toContainText('GUARD');

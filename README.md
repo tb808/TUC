@@ -72,6 +72,7 @@ Mit **Esc** pausierst du den Kampf.
 ## Was ist enthalten?
 
 - Fünf Schwierigkeitsstufen von Einsteiger bis Champion
+- Vollständiger Fight-Night-Walkout mit Kommissionscheck, Begleitteam, Cageside-Kontrolle, Käfigeinzug, Ringansage und Referee-Instruktionen
 - Geführter Trainingsmodus mit drei Lektionen und passivem Übungsgegner
 - Freies Training zum gefahrlosen Ausprobieren aller Techniken
 - Standkampf mit Schlägen, Tritten, Deckung und Ausdauer
