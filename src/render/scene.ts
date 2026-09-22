@@ -6,7 +6,7 @@ import { ImpactPhysics } from './physics';
 import { batchRigidParts } from './batch';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { surfaceTexture } from './materials';
-import { arenaDetails } from './arenaDetails';
+import { arenaDetails, ARENAS, type ArenaEnvironment } from './arenaDetails';
 import { smooth } from '../game/motion';
 
 function canvasTexture(width: number, height: number, draw: (c: CanvasRenderingContext2D) => void) { const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height; const c = canvas.getContext('2d')!; draw(c); const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture; }
@@ -17,6 +17,7 @@ export class ArenaView {
   private particles: { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }[] = [];
   private cagePanels: THREE.Mesh[] = []; private target = new THREE.Vector3(0, .85, 0); private look = this.target.clone();
   private contactShadows: THREE.Mesh[] = [];
+  private environment!: ArenaEnvironment;
   fps = 60; quality = 'high';
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -33,7 +34,7 @@ export class ArenaView {
     this.light.shadow.mapSize.set(2048, 2048); this.light.shadow.camera.left = -6; this.light.shadow.camera.right = 6; this.light.shadow.camera.top = 6; this.light.shadow.camera.bottom = -6; this.light.shadow.camera.near = .5; this.light.shadow.camera.far = 20; this.light.shadow.normalBias = .018; this.light.shadow.bias = -.00012; this.light.shadow.radius = 3; this.scene.add(this.light);
     const rim = new THREE.DirectionalLight('#c3d9ff', 2.4); rim.position.set(3, 5, -5); this.scene.add(rim);
     const fill = new THREE.DirectionalLight('#e1e9f3', .65); fill.position.set(3, 3, 6); this.scene.add(fill);
-    this.buildArena(); arenaDetails(this.scene); batchRigidParts(this.scene); this.rigs.forEach(r => this.scene.add(r.root));
+    this.buildArena(); this.environment = arenaDetails(this.scene); batchRigidParts(this.scene); this.rigs.forEach(r => this.scene.add(r.root));
     const shadowTexture = canvasTexture(128, 128, c => {
       const gradient = c.createRadialGradient(64, 64, 2, 64, 64, 64); gradient.addColorStop(0, '#0000008c'); gradient.addColorStop(.38, '#0000004d'); gradient.addColorStop(1, '#00000000'); c.fillStyle = gradient; c.fillRect(0, 0, 128, 128);
     });
@@ -48,6 +49,12 @@ export class ArenaView {
   }
   async init() { await this.physics.init(); }
   setQuality(quality: string) { this.quality = quality; this.renderer.setPixelRatio(Math.min(devicePixelRatio, quality === 'high' ? 1.75 : .8)); this.renderer.shadowMap.enabled = quality === 'high'; }
+  setArena(index: number) {
+    const theme = ARENAS[Math.max(0, Math.min(ARENAS.length - 1, index))];
+    this.environment.setArena(index);
+    this.light.color.set(theme.id === 'neon-district' ? '#ffd9f8' : theme.id === 'alpine-crown' ? '#e4f8ff' : theme.id === 'imperial-dome' ? '#ffe1ae' : '#fff0e2');
+    this.renderer.toneMappingExposure = theme.id === 'imperial-dome' ? 1.08 : theme.id === 'neon-district' ? .92 : 1;
+  }
   private buildArena() {
     const dark = new THREE.MeshStandardMaterial({ color: '#1c2421', roughness: .82, metalness: .2 });
     const steel = new THREE.MeshStandardMaterial({ color: '#39443d', roughness: .46, metalness: .65 });
@@ -101,6 +108,7 @@ export class ArenaView {
   draw(match: Combat, dt: number, menu: boolean, frozen = false, frameDt = dt) {
     this.fps += (1 / Math.max(.001, frameDt) - this.fps) * .025;
     if (!frozen) this.clock += dt;
+    this.environment.update(this.clock);
     this.rigs.forEach((rig, i) => {
       rig.update(match.fighters[i], match.grapple, this.clock, frozen ? 0 : dt, this.physics.rotation(i), match.result);
       this.contactShadows[i].position.x = match.fighters[i].position.x; this.contactShadows[i].position.z = match.fighters[i].position.z;
@@ -112,9 +120,10 @@ export class ArenaView {
     }
     const [a, b] = match.fighters, middle = new THREE.Vector3((a.position.x + b.position.x) / 2, match.grapple && match.grapple.mode !== 'clinch' ? .45 : .95, (a.position.z + b.position.z) / 2);
     const distance = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
-    const zoom = menu ? 10.8 : clamp(5.3 + distance * .7, 6.2, 12.8);
-    const desired = new THREE.Vector3(middle.x * .65 + (menu ? 3.6 : .3), menu ? 6.6 : 2.9 + distance * .13, middle.z * .65 + zoom);
-    this.camera.position.lerp(desired, 1 - Math.exp(-dt * 2)); this.look.lerp(middle, 1 - Math.exp(-dt * 4));
+    const zoom = menu ? 17 : clamp(5.3 + distance * .7, 6.2, 12.8);
+    const focus = middle.clone(); if (menu) focus.y = 3.2;
+    const desired = new THREE.Vector3(middle.x * .65 + (menu ? 5.1 : .3), menu ? 9.3 : 2.9 + distance * .13, middle.z * .65 + zoom);
+    this.camera.position.lerp(desired, 1 - Math.exp(-dt * 2)); this.look.lerp(focus, 1 - Math.exp(-dt * 4));
     this.shake *= Math.exp(-dt * 18);
     this.target.copy(this.look).add(new THREE.Vector3(Math.sin(this.clock * 110) * this.shake, Math.cos(this.clock * 93) * this.shake * .7, 0)); this.camera.lookAt(this.target);
     for (const panel of this.cagePanels) (panel.material as THREE.MeshStandardMaterial).opacity = panel.position.z > middle.z + .8 ? .065 : .43;

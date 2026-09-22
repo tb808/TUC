@@ -191,13 +191,22 @@ export class FighterRig implements FighterVisual {
       if (grapple.mode === 'clinch') { this.spine.rotation.x += .24; if (!f.attack) { this.arms.forEach(b => b.rotation.x = -1.5); this.forearms.forEach(b => b.rotation.x = -.9); } }
       else if (grapple.mode === 'takedown') { const t = clamp(grapple.timer / .78, 0, 1); this.hips.position.y -= t * .35; this.spine.rotation.x += top ? t * .9 : -t * .5; }
       else {
+        const positions = ['guard', 'halfGuard', 'sideControl', 'mount'] as const;
+        const transition = grapple.mode === 'ground' ? grapple.transition : null;
+        const transitionT = transition ? clamp(transition.elapsed / (transition.duration ?? .8), 0, 1) : 0;
+        const eased = transitionT * transitionT * (3 - 2 * transitionT);
+        const fromIndex = positions.indexOf(transition?.from ?? grapple.position);
+        const toIndex = positions.indexOf(transition?.to ?? grapple.position);
+        const positionIndex = fromIndex + (toIndex - fromIndex) * eased;
+        const weightAt = (index: number) => clamp(1 - Math.abs(positionIndex - index), 0, 1);
+        const guardWeight = weightAt(0), halfWeight = weightAt(1), sideWeight = weightAt(2), mountWeight = weightAt(3);
+        const side = transition ? (grapple.side ?? 1) + ((transition.targetSide ?? grapple.side ?? 1) - (grapple.side ?? 1)) * eased : (grapple.side ?? 1);
         this.hips.position.y = top ? .54 : .17;
         this.hips.rotation.x = top ? .55 : -Math.PI / 2;
-        if (!top) { this.hips.position.z = .1; this.spine.rotation.x = -.05; this.legs.forEach(b => b.rotation.x = grapple.position === 'guard' ? -1.3 : -.5); this.shins.forEach(b => b.rotation.x = grapple.position === 'guard' ? 1.1 : 1.35); }
+        if (!top) { this.hips.position.z = .1; this.spine.rotation.x = -.05; this.legs.forEach(b => b.rotation.x = -.5 - guardWeight * .8); this.shins.forEach(b => b.rotation.x = 1.35 - guardWeight * .25); }
         else { this.hips.position.z = 0; this.legs.forEach((b, i) => { b.rotation.x = -.8; b.rotation.z = i ? -.6 : .6; }); this.shins.forEach(b => b.rotation.x = 1.9); if (!f.attack) this.arms.forEach(b => b.rotation.x = -1.1); }
-        if (grapple.position === 'halfGuard' && !top) { this.legs[0].rotation.x = -1.1; this.legs[0].rotation.z = .45; }
-        if (grapple.position === 'sideControl' && top) { this.hips.rotation.y += .9; this.hips.rotation.x = 1; this.hips.position.y = .5; }
-        if (grapple.position === 'mount' && top) { this.hips.rotation.x = .28; this.hips.position.y = .54; this.spine.rotation.x += .18; }
+        if (!top) { this.legs[0].rotation.x += -.6 * halfWeight; this.legs[0].rotation.z += .45 * halfWeight; }
+        if (top) { this.hips.rotation.y += .9 * side * sideWeight; this.hips.rotation.x += .45 * sideWeight - .27 * mountWeight; this.hips.position.y -= .04 * sideWeight; this.spine.rotation.x += .18 * mountWeight; }
         if (grapple.mode === 'submission') {
           this.hips.rotation.x = -Math.PI / 2; this.hips.position.y = top ? .2 : .17;
           if (top) {
@@ -207,7 +216,13 @@ export class FighterRig implements FighterVisual {
           }
           else { this.arms[1].rotation.x = -2; this.forearms[1].rotation.x = -.3; }
         }
-        if (grapple.transition) this.hips.rotation.z += Math.sin(grapple.transition.elapsed * Math.PI / .8) * .2;
+        if (transition) {
+          const direction = transition.direction === 'left' ? -1 : transition.direction === 'right' ? 1 : transition.by === f.id ? 1 : -1;
+          const wave = Math.sin(transitionT * Math.PI);
+          this.hips.rotation.z += wave * direction * (transition.flips ? .9 : .3);
+          this.spine.rotation.y += wave * direction * (transition.flips ? .42 : .18);
+          this.hips.position.y += wave * (transition.flips ? .08 : .035);
+        }
       }
     }
     if (f.state === 'knockedDown' || (result && result.winner !== f.id && ['KO','TKO'].includes(result.method))) {

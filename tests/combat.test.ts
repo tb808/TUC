@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Combat, canStrikeHit, insideCage, scoreRound } from '../src/game/combat';
+import { Combat, canStrikeHit, groundMoveOptions, insideCage, scoreRound } from '../src/game/combat';
 import { DIFFICULTIES, STATS, TECHNIQUES } from '../src/game/config';
 import { OpponentAI, seededRandom } from '../src/game/ai';
 import { EMPTY_CONTROLS, type Attack, type FighterId } from '../src/game/types';
@@ -42,7 +42,7 @@ describe('Clinch, Boden und Kampfenden', () => {
     act(g, 0, 'takedown'); tick(g, .9); expect(g.grapple?.position).toBe('guard'); expect(g.grapple?.mode).toBe('ground');
     for (const position of ['halfGuard','sideControl','mount']) { act(g, 0, 'grapple'); tick(g, 1); expect(g.grapple?.position).toBe(position); }
     g.fighters[0].damage.stamina = 100; act(g, 0, 'submission'); tick(g, .1); expect(g.grapple?.mode).toBe('submission');
-    g.command(0, { ...EMPTY_CONTROLS(), action: 'holdG' }); tick(g, 9); expect(g.result?.method).toBe('Submission'); expect(g.result?.winner).toBe(0);
+    g.command(0, { ...EMPTY_CONTROLS(), action: 'holdSubmission' }); tick(g, 9); expect(g.result?.method).toBe('Submission'); expect(g.result?.winner).toBe(0);
   });
   it('a timely low guard sprawls a takedown', () => { const g = arrange(); g.command(1, { ...EMPTY_CONTROLS(), guard: 'low' }); act(g, 0, 'takedown'); tick(g, 1); expect(g.grapple).toBeNull(); expect(g.fighters[1].state).not.toBe('ground'); });
   it('defends a ground transition then allows a sweep and standup', () => {
@@ -50,6 +50,17 @@ describe('Clinch, Boden und Kampfenden', () => {
     g.command(1, { ...EMPTY_CONTROLS(), guard: 'high' }); act(g, 0, 'grapple'); tick(g, 1); expect(g.grapple?.position).toBe('guard');
     g.command(1, EMPTY_CONTROLS()); act(g, 1, 'grapple'); tick(g, 1); expect(g.grapple?.top).toBe(1);
     act(g, 1, 'stand'); tick(g, .1); expect(g.grapple).toBeNull();
+  });
+  it('maps each available ground direction to a visible destination and moves continuously', () => {
+    const g = arrange(); act(g, 0, 'takedown'); tick(g, .9);
+    const options = groundMoveOptions(g.grapple!, 0);
+    expect(options.map(option => option.key)).toEqual(expect.arrayContaining(['W', 'A', 'D']));
+    expect(options.every(option => option.label.includes('Half Guard'))).toBe(true);
+    const before = { ...g.fighters[0].position };
+    g.command(0, { ...EMPTY_CONTROLS(), action: 'grapple', direction: 'right' }); tick(g, .4);
+    expect(g.grapple?.transition?.to).toBe('halfGuard');
+    expect(Math.hypot(g.fighters[0].position.x - before.x, g.fighters[0].position.z - before.z)).toBeGreaterThan(.005);
+    tick(g, .6); expect(g.grapple?.position).toBe('halfGuard'); expect(g.grapple?.side).toBe(1);
   });
   it('submission defense escapes without a stuck state', () => { const g = arrange(); g.grapple = { mode: 'submission', top: 0, position: 'mount', timer: 0, progress: .1, transition: null }; g.fighters.forEach(f => f.state = 'submission'); g.command(1, { ...EMPTY_CONTROLS(), guard: 'high' }); tick(g, 1); expect(g.grapple?.mode).toBe('ground'); expect(g.result).toBeNull(); });
   it('KO is terminal and cannot apply more damage afterwards', () => { const g = arrange(1.05); g.fighters[1].damage.head = 98; hit(g); expect(g.result?.method).toBe('KO'); const damage = g.fighters[1].damage.head; tick(g, 10); expect(g.fighters[1].damage.head).toBe(damage); });

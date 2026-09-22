@@ -9,7 +9,7 @@ export class OpponentAI {
     const self = match.fighters[this.id], rival = match.fighters[this.id === 0 ? 1 : 0], p = this.profile;
     if (match.phase !== 'fight') return EMPTY_CONTROLS();
     // Never sees the opponent's control buffer. Only already visible combat state.
-    if (match.elapsed < this.next) return { ...this.current, action: this.current.action === 'holdG' ? 'holdG' : undefined };
+    if (match.elapsed < this.next) return { ...this.current, action: this.current.action === 'holdSubmission' ? 'holdSubmission' : undefined };
     this.next = match.elapsed + p.reaction * (.85 + this.random() * .3);
     const input = EMPTY_CONTROLS();
     const d = distance(self.position, rival.position), dx = (rival.position.x - self.position.x) / Math.max(d, .01), dz = (rival.position.z - self.position.z) / Math.max(d, .01);
@@ -17,7 +17,7 @@ export class OpponentAI {
     if (threat && this.random() < p.accuracy) { input.guard = rival.attack!.technique.zone === 'head' ? 'high' : 'low'; this.decision = 'Deckung lesen'; }
     const g = match.grapple;
     if (g) {
-      if (g.mode === 'submission') { input.action = g.top === this.id ? 'holdG' : undefined; input.guard = g.top !== this.id && this.random() < p.accuracy + .1 ? 'high' : null; this.decision = 'Armbar'; }
+      if (g.mode === 'submission') { input.action = g.top === this.id ? 'holdSubmission' : undefined; input.guard = g.top !== this.id && this.random() < p.accuracy + .1 ? 'high' : null; this.decision = 'Armbar'; }
       else if (g.mode === 'takedown') { if (g.top !== this.id && g.timer >= p.reaction && this.random() < p.grappling) input.guard = 'low'; this.decision = 'Sprawl'; }
       else if (g.transition && g.transition.by !== this.id && g.transition.elapsed >= p.reaction && this.random() < p.grappling) { input.guard = 'high'; this.decision = 'Übergang verteidigen'; }
       else if (self.damage.stamina < p.reserve) { input.guard = 'high'; this.decision = 'Erholen'; }

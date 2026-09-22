@@ -4,6 +4,16 @@ TUC ist ein spielbarer MMA-Prototyp für den Desktop-Browser. Steige in den Okta
 
 Ein Kampf geht über bis zu drei Runden à drei Minuten. Du kannst durch KO, TKO, Aufgabe oder nach Punkten gewinnen.
 
+## Empfohlener Einstieg: Training
+
+Starte zuerst den **Trainingsmodus**. Dort führt dich ein Coach Schritt für Schritt durch drei Lektionen:
+
+- **Grundlagen:** Bewegung, Jab und Deckung
+- **Striking:** Jab, Cross, Low-Kick und Body-Kick
+- **Grappling:** Clinch, Takedown, Half Guard, Side Control und Mount
+
+Im **freien Training** kannst du alle Techniken ohne Zeitdruck ausprobieren. Der Trainingsdummy greift nicht an und der Modus endet nicht durch KO oder TKO.
+
 ## Spiel starten
 
 Unter Windows einfach **Start-TUC.cmd** doppelklicken. Kurz darauf öffnet sich das Spiel automatisch im Browser.
@@ -33,12 +43,11 @@ Am besten funktioniert TUC mit einer aktuellen Version von Chrome oder Edge. Das
 
 | Taste | Aktion |
 | --- | --- |
-| **G** | Position verbessern |
-| **S + G** | Als oberer Kämpfer eine Position abgeben |
+| **W / A / S / D** | Angezeigten Positionswechsel direkt starten |
 | **J / K** | Ground-and-Pound aus der oberen Position |
 | **Leertaste** | Positionswechsel oder Aufgabeversuch verteidigen |
 | **U** | Aus der Mount eine Armbar ansetzen |
-| **G halten** | Armbar weiter durchziehen |
+| **U halten** | Armbar weiter durchziehen |
 | **R** | Aufstehen, wenn es die Position erlaubt |
 
 Mit **Esc** pausierst du den Kampf.
@@ -57,24 +66,27 @@ Mit **Esc** pausierst du den Kampf.
 - Behalte deine Ausdauer im Auge. Angriffe, Deckung und Bodenkampf kosten Kraft.
 - Eine dauerhafte Deckung schützt dich nicht kostenlos: Treffer auf die Deckung verbrauchen ebenfalls Ausdauer.
 - Wehre einen Takedown rechtzeitig mit **Strg + Leertaste** ab.
-- Am Boden führt **G** als oberer Kämpfer von Guard über Half Guard und Side Control bis in die Mount.
-- Aus der Mount kannst du mit **U** eine Armbar starten und sie anschließend mit gehaltenem **G** beenden.
+- Am Boden zeigt das Richtungsmenü, welche Position du mit **W**, **A**, **S** oder **D** erreichst. Ein einzelner Tastendruck genügt.
+- Aus der Mount kannst du mit **U** eine Armbar starten und sie anschließend mit gehaltenem **U** beenden.
 
 ## Was ist enthalten?
 
 - Fünf Schwierigkeitsstufen von Einsteiger bis Champion
+- Geführter Trainingsmodus mit drei Lektionen und passivem Übungsgegner
+- Freies Training zum gefahrlosen Ausprobieren aller Techniken
 - Standkampf mit Schlägen, Tritten, Deckung und Ausdauer
 - Clinch, Takedowns und Takedown-Abwehr
 - Bodenkampf mit mehreren Positionen, Sweeps und Ground-and-Pound
 - KO, TKO, Aufgabe und Punktrichterentscheidung
 - Drei Runden, Pausenfunktion, Neustart und Revanche
 - Zwei Grafikstufen für unterschiedliche Rechner
+- Fünf detaillierte Arenen mit eigener Lichtstimmung, Kulisse und animiertem Publikum
 
 ## Gut zu wissen
 
 TUC ist ein eigenständiger Prototyp. Kämpfer und Bewegungen wurden speziell für das Spiel erstellt und sind bewusst einfacher gehalten als in einer großen kommerziellen Sportsimulation.
 
-Diese Version bietet eine Arena und Kämpfe gegen den Computer. Multiplayer, Karriere-Modus, Gamepad- und Touch-Steuerung sind derzeit nicht enthalten.
+Diese Version bietet fünf Arenen und Kämpfe gegen den Computer. Multiplayer, Karriere-Modus, Gamepad- und Touch-Steuerung sind derzeit nicht enthalten.
 
 ## Für Entwickler
 

@@ -1,5 +1,6 @@
 import { EMPTY_CONTROLS, type Controls } from './types';
 import type { Combat } from './combat';
+import type { GroundDirection } from './types';
 export class Keyboard {
   keys = new Set<string>(); private actions: KeyboardEvent[] = [];
   constructor(private pause: () => void, private debug: () => void) {
@@ -21,13 +22,15 @@ export class Keyboard {
     result.guard = down('Space') ? down('ControlLeft') || down('ControlRight') ? 'low' : 'high' : null;
     const e = this.actions.shift();
     if (e) {
+      const groundDirections: Partial<Record<string, GroundDirection>> = { KeyW: 'advance', KeyA: 'left', KeyS: 'reverse', KeyD: 'right' };
       const hand = e.code === 'KeyK' || e.code === 'KeyI' ? 1 : 0;
       if (['KeyJ', 'KeyK'].includes(e.code)) result.action = `${e.shiftKey ? 'hook' : 'punch'}-${hand}-${e.ctrlKey ? 'body' : 'head'}`;
       if (['KeyU', 'KeyI'].includes(e.code)) result.action = match.grapple?.mode === 'ground' && e.code === 'KeyU' ? 'submission' : `kick-${hand}-${e.shiftKey ? 'head' : e.ctrlKey ? 'body' : 'leg'}`;
-      if (e.code === 'KeyG') { result.action = e.shiftKey ? 'takedown' : 'grapple'; result.direction = down('KeyS') ? 'reverse' : down('KeyA') ? 'left' : down('KeyD') ? 'right' : 'advance'; }
+      if (match.grapple?.mode === 'ground' && groundDirections[e.code]) { result.action = 'grapple'; result.direction = groundDirections[e.code]; }
+      if (e.code === 'KeyG' && match.grapple?.mode !== 'ground' && match.grapple?.mode !== 'submission') { result.action = e.shiftKey ? 'takedown' : 'grapple'; result.direction = 'advance'; }
       if (e.code === 'KeyR') result.action = 'stand';
     }
-    if (match.grapple?.mode === 'submission' && down('KeyG')) result.action = 'holdG';
+    if (match.grapple?.mode === 'submission' && down('KeyU')) result.action = 'holdSubmission';
     return result;
   }
 }
