@@ -6,6 +6,7 @@ import { batchRigidParts } from './batch';
 import { strikeLocal, strikeMotion, smooth } from '../game/motion';
 import { fabricMaterial, skinMaterial } from './materials';
 import { solveLimb } from './ik';
+import { FIGHTERS, type FighterProfile } from '../game/fighters';
 
 export interface FighterVisual { root: THREE.Group; update(fighter: Fighter, grapple: Grapple | null, time: number, dt: number, impact: THREE.Quaternion, result: MatchResult | null): void }
 const sphere = new THREE.SphereGeometry(1, 28, 20);
@@ -45,13 +46,15 @@ export class FighterRig implements FighterVisual {
   private footTargets = [new THREE.Vector3(), new THREE.Vector3()];
   private stepFrom = new THREE.Vector3(); private stepTo = new THREE.Vector3();
   private previousRoot = new THREE.Vector3();
-  constructor(id: number) {
-    this.skin = skinMaterial(id ? '#976448' : '#ba8263'); this.skinBase = this.skin.color.clone();
-    const shorts = fabricMaterial(id ? '#851e30' : '#153f77');
-    const seam = new THREE.MeshStandardMaterial({ color: '#e2ddd0', roughness: .8 });
+  constructor(id: number, profile: FighterProfile = FIGHTERS[id]) {
+    const look = profile.visual;
+    this.root.scale.set(look.build, .96 + look.build * .04, look.build);
+    this.skin = skinMaterial(look.skin); this.skinBase = this.skin.color.clone();
+    const shorts = fabricMaterial(look.shorts);
+    const seam = new THREE.MeshStandardMaterial({ color: look.accent, roughness: .8 });
     const gloves = new THREE.MeshPhysicalMaterial({ color: '#171a1d', roughness: .43, clearcoat: .28, clearcoatRoughness: .45 });
     const wrap = new THREE.MeshStandardMaterial({ color: id ? '#e33d44' : '#428fe0', roughness: .8 });
-    const hair = new THREE.MeshStandardMaterial({ color: '#201914', roughness: .98 });
+    const hair = new THREE.MeshStandardMaterial({ color: look.hair, roughness: .98 });
     this.hips = bone(this.root, 'hips', 0, .98, 0);
     this.hips.rotation.order = 'YXZ';
     contour(this.hips, shorts, [[-.22,0],[-.2,.155],[-.12,.204],[.03,.193],[.07,.182],[.075,0]], .73);
@@ -60,18 +63,26 @@ export class FighterRig implements FighterVisual {
     // A continuous tapered torso avoids the separated spherical-mannequin silhouette.
     contour(this.spine, this.skin, [[-.08,0],[-.07,.15],[0,.185],[.08,.191],[.16,.211],[.25,.246],[.34,.263],[.39,.253],[.435,.2],[.47,.103],[.5,.078],[.51,0]], .59);
     for (const s of [-1, 1]) {
-      shape(this.spine, new THREE.MeshStandardMaterial({ color: id ? '#76503e' : '#976451', roughness: .78 }), [s * .13, .311, .14], [.008, .006, .002]);
+      shape(this.spine, new THREE.MeshStandardMaterial({ color: look.skin, roughness: .78 }), [s * .13, .311, .14], [.008, .006, .002]);
     }
     shape(this.spine, this.skin, [0, .493, 0], [.079, .1, .077]);
     this.head = bone(this.spine, 'head', 0, .623, .018);
     contour(this.head, this.skin, [[-.143,0],[-.131,.042],[-.115,.062],[-.082,.086],[-.032,.098],[.028,.104],[.095,.091],[.145,.053],[.168,0]], 1.02);
-    const scalp = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 16, 0, Math.PI * 2, 0, id ? 1.12 : 1.28), hair);
-    scalp.position.set(0, .025, 0); scalp.scale.set(.111, .151, .113); scalp.castShadow = true; this.head.add(scalp);
+    if (look.hairStyle !== 'bald') {
+      const height = look.hairStyle === 'high' ? .178 : look.hairStyle === 'swept' ? .143 : .151;
+      const scalp = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 16, 0, Math.PI * 2, 0, look.hairStyle === 'buzz' ? .91 : 1.28), hair);
+      scalp.position.set(0, look.hairStyle === 'high' ? .055 : .025, 0); scalp.scale.set(.111, height, .113); scalp.castShadow = true; this.head.add(scalp);
+      if (look.hairStyle === 'high') shape(this.head, hair, [0, .149, -.015], [.092, .071, .085]);
+      if (look.hairStyle === 'swept') {
+        shape(this.head, hair, [.046, .125, .025], [.08, .039, .087]);
+        shape(this.head, hair, [-.103, .008, -.034], [.032, .138, .07]);
+      }
+    }
     shape(this.head, this.skin, [0, .004, .101], [.019, .042, .032]);
     shape(this.head, this.skin, [0, -.018, .123], [.026, .015, .014]);
     const eye = new THREE.MeshStandardMaterial({ color: '#151c19', roughness: .36 });
     const whites = new THREE.MeshStandardMaterial({ color: '#b8b5a8', roughness: .42 });
-    const iris = new THREE.MeshStandardMaterial({ color: id ? '#433d2e' : '#46636a', roughness: .26 });
+    const iris = new THREE.MeshStandardMaterial({ color: profile.id === 'tyler' ? '#46636a' : '#433d2e', roughness: .26 });
     for (const s of [-1, 1]) {
       shape(this.head, this.skin, [s * .105, .001, -.005], [.016, .031, .021]);
       shape(this.head, this.skin, [s * .049, -.008, .074], [.039, .027, .019]);
@@ -82,7 +93,7 @@ export class FighterRig implements FighterVisual {
       shape(this.head, hair, [s * .041, .05, .096], [.029, .005, .01]);
       shape(this.head, eye, [s * .012, -.026, .125], [.004, .0025, .002]);
     }
-    if (id) shape(this.head, hair, [0, -.097, .059], [.073, .026, .026]);
+    if (look.beard) shape(this.head, hair, [0, -.097, .059], [.073, .026, .026]);
     shape(this.head, new THREE.MeshStandardMaterial({ color: '#694b40' }), [0, -.049, .106], [.037, .007, .009]);
     this.bruise = shape(this.head, new THREE.MeshStandardMaterial({ color: '#7d3541', transparent: true, opacity: 0, roughness: .7 }), [.072, .013, .092], [.034, .027, .012]);
     this.cut = shape(this.head, new THREE.MeshStandardMaterial({ color: '#81211e', transparent: true, opacity: 0 }), [-.048, .07, .099], [.032, .006, .009]);
@@ -118,6 +129,16 @@ export class FighterRig implements FighterVisual {
     const bones: THREE.Bone[] = []; this.root.traverse(o => { if (o instanceof THREE.Bone) bones.push(o); }); this.skeleton = new THREE.Skeleton(bones);
     bones.forEach(batchRigidParts);
     this.poses = bones.map(b => b.quaternion.clone());
+  }
+  dispose() {
+    const materials = new Set<THREE.Material>(), geometries = new Set<THREE.BufferGeometry>();
+    this.root.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return;
+      geometries.add(object.geometry);
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
+    });
+    geometries.forEach(geometry => { if (geometry !== sphere) geometry.dispose(); });
+    materials.forEach(material => material.dispose());
   }
   /** Optional GLB uses meters, +Z forward and bone names matching this rig. Keeps procedural fallback until validated. */
   async loadGLB(url: string) {
@@ -205,7 +226,21 @@ export class FighterRig implements FighterVisual {
     if (grapple) {
       const top = grapple.top === f.id;
       if (grapple.mode === 'clinch') { this.spine.rotation.x += .24; if (!f.attack) { this.arms.forEach(b => b.rotation.x = -1.5); this.forearms.forEach(b => b.rotation.x = -.9); } }
-      else if (grapple.mode === 'takedown') { const t = clamp(grapple.timer / .78, 0, 1); this.hips.position.y -= t * .35; this.spine.rotation.x += top ? t * .9 : -t * .5; }
+      else if (grapple.mode === 'takedown') {
+        const t = smooth(clamp(grapple.timer / .78, 0, 1));
+        this.hips.position.y = THREE.MathUtils.lerp(this.hips.position.y, top ? .58 : .19, t);
+        this.hips.rotation.x = THREE.MathUtils.lerp(this.hips.rotation.x, top ? 1.05 : -1.45, t);
+        this.spine.rotation.x += t * (top ? .07 : -.1);
+        this.head.rotation.x += t * (top ? .1 : -.12);
+        for (let i = 0; i < 2; i++) {
+          const sign = i ? -1 : 1;
+          this.legs[i].rotation.x = THREE.MathUtils.lerp(this.legs[i].rotation.x, top ? -.75 : -1.1, t);
+          this.legs[i].rotation.z += sign * t * .25;
+          this.shins[i].rotation.x = THREE.MathUtils.lerp(this.shins[i].rotation.x, top ? .88 : 1.15, t);
+          this.arms[i].rotation.x = THREE.MathUtils.lerp(this.arms[i].rotation.x, top ? -1.4 : -1.1, t);
+          this.forearms[i].rotation.x = THREE.MathUtils.lerp(this.forearms[i].rotation.x, -1.4, t);
+        }
+      }
       else {
         const positions = ['guard', 'halfGuard', 'sideControl', 'mount'] as const;
         const transition = grapple.mode === 'ground' ? grapple.transition : null;
@@ -217,27 +252,84 @@ export class FighterRig implements FighterVisual {
         const weightAt = (index: number) => clamp(1 - Math.abs(positionIndex - index), 0, 1);
         const guardWeight = weightAt(0), halfWeight = weightAt(1), sideWeight = weightAt(2), mountWeight = weightAt(3);
         const side = transition ? (grapple.side ?? 1) + ((transition.targetSide ?? grapple.side ?? 1) - (grapple.side ?? 1)) * eased : (grapple.side ?? 1);
-        this.hips.position.y = top ? .54 : .17;
-        this.hips.rotation.x = top ? .55 : -Math.PI / 2;
-        if (!top) { this.hips.position.z = .1; this.spine.rotation.x = -.05; this.legs.forEach(b => b.rotation.x = -.5 - guardWeight * .8); this.shins.forEach(b => b.rotation.x = 1.35 - guardWeight * .25); }
-        else { this.hips.position.z = 0; this.legs.forEach((b, i) => { b.rotation.x = -.8; b.rotation.z = i ? -.6 : .6; }); this.shins.forEach(b => b.rotation.x = 1.9); if (!f.attack) this.arms.forEach(b => b.rotation.x = -1.1); }
-        if (!top) { this.legs[0].rotation.x += -.6 * halfWeight; this.legs[0].rotation.z += .45 * halfWeight; }
-        if (top) { this.hips.rotation.y += .9 * side * sideWeight; this.hips.rotation.x += .45 * sideWeight - .27 * mountWeight; this.hips.position.y -= .04 * sideWeight; this.spine.rotation.x += .18 * mountWeight; }
+        // A sweep transfers weight throughout the roll. Blending both roles here avoids
+        // the old one-frame switch from a supine fighter to a kneeling fighter.
+        const roll = transition?.flips ? eased : 0;
+        const topWeight = top ? 1 - roll : roll;
+        const bottomWeight = 1 - topWeight;
+        const effort = transition ? Math.sin(Math.PI * transitionT) : 0;
+        const breathing = Math.sin(time * 3.2 + f.id) * .008;
+        this.hips.position.y = .19 * bottomWeight + (.58 - sideWeight * .05 - mountWeight * .025) * topWeight + breathing;
+        this.hips.position.z = .08 * bottomWeight - .035 * topWeight;
+        this.hips.rotation.x = (-Math.PI / 2 + guardWeight * .12) * bottomWeight + (1.05 - halfWeight * .12 + sideWeight * .23 - mountWeight * .17) * topWeight;
+        this.hips.rotation.y = side * sideWeight * .88 * topWeight;
+        this.spine.rotation.x = (-.05 + mountWeight * .06) * bottomWeight + (.05 + mountWeight * .18) * topWeight;
+        this.spine.rotation.z = side * sideWeight * .12 * topWeight;
+        this.head.rotation.x = -.12 * bottomWeight + .12 * topWeight;
+        for (let i = 0; i < 2; i++) {
+          const sign = i ? -1 : 1;
+          // Bottom fighter frames against the shoulders. Guard wraps the opponent,
+          // half guard traps one leg, and side control/mount bring the knees in.
+          const bottomLeg = -(.75 + guardWeight * .44 + halfWeight * (i ? .38 : .05) - mountWeight * .2);
+          const topLeg = -.85 + guardWeight * .12 - sideWeight * (i === (side > 0 ? 1 : 0) ? .25 : 0) + mountWeight * .18;
+          this.legs[i].rotation.set(bottomLeg * bottomWeight + topLeg * topWeight, sideWeight * sign * .15, sign * ((.22 + guardWeight * .1) * bottomWeight + (.38 + sideWeight * .23 - mountWeight * .13) * topWeight));
+          this.shins[i].rotation.x = (1.28 - guardWeight * .18 + mountWeight * .15) * bottomWeight + (.88 + mountWeight * .05) * topWeight;
+          this.feet[i].rotation.x = -.16 * bottomWeight + .1 * topWeight;
+          const defendingArm = -1.12 - mountWeight * .33;
+          const postingArm = -1.35 + sideWeight * .22 * sign;
+          this.arms[i].rotation.x = defendingArm * bottomWeight + postingArm * topWeight;
+          this.arms[i].rotation.z = sign * ((.24 + sideWeight * .18) * bottomWeight + (.38 + guardWeight * .14) * topWeight);
+          this.forearms[i].rotation.x = (-1.5 + sideWeight * .3) * bottomWeight + (-1.35 + mountWeight * .16) * topWeight;
+        }
+        if (topWeight > .01 && f.attack?.technique.kind === 'groundPunch') {
+          const hand = f.attack.technique.hand ? rear : lead, sign = hand ? -1 : 1;
+          const { extension, preparation } = strikeMotion(f.attack);
+          this.spine.rotation.y += sign * (.22 * preparation - .32 * extension) * topWeight;
+          this.spine.rotation.x += (.12 * preparation + .17 * extension) * topWeight;
+          this.arms[hand].rotation.x = THREE.MathUtils.lerp(this.arms[hand].rotation.x, -.48 * preparation - 1.75 * extension - 1.1 * (1 - preparation - extension), topWeight);
+          this.forearms[hand].rotation.x = THREE.MathUtils.lerp(this.forearms[hand].rotation.x, -1.65 + .9 * extension, topWeight);
+          this.arms[hand].rotation.z += sign * .14 * extension * topWeight;
+        }
         if (grapple.mode === 'submission') {
           this.hips.rotation.x = -Math.PI / 2; this.hips.position.y = top ? .2 : .17;
           if (top) {
             this.hips.rotation.y = -Math.PI / 2; this.spine.rotation.set(.05, 0, 0);
-            this.legs.forEach((b, i) => b.rotation.set(-.25, 0, i ? -.3 : .3));
+            this.legs.forEach((b, i) => b.rotation.set(-.1, 0, i ? -.3 : .3));
             this.shins.forEach(b => b.rotation.x = .55); this.arms.forEach(b => b.rotation.x = -1.2); this.forearms.forEach(b => b.rotation.x = -1.1);
           }
           else { this.arms[1].rotation.x = -2; this.forearms[1].rotation.x = -.3; }
         }
+        if (grapple.mode === 'standup') {
+          const rise = smooth(clamp((grapple.timer - (top ? .06 : .17)) / (top ? .56 : .45), 0, 1));
+          this.hips.position.y = THREE.MathUtils.lerp(this.hips.position.y, .94, rise);
+          this.hips.position.z *= 1 - rise;
+          this.hips.rotation.x *= 1 - rise;
+          this.hips.rotation.y *= 1 - rise;
+          this.spine.rotation.x = THREE.MathUtils.lerp(this.spine.rotation.x, .08, rise);
+          this.spine.rotation.z *= 1 - rise;
+          this.head.rotation.x *= 1 - rise;
+          for (let i = 0; i < 2; i++) {
+            const sign = i ? -1 : 1;
+            this.legs[i].rotation.x = THREE.MathUtils.lerp(this.legs[i].rotation.x, i === lead ? -.27 : .17, rise);
+            this.legs[i].rotation.z = THREE.MathUtils.lerp(this.legs[i].rotation.z, sign * .08, rise);
+            this.shins[i].rotation.x = THREE.MathUtils.lerp(this.shins[i].rotation.x, .3, rise);
+            if (!top) {
+              const support = smooth(clamp(grapple.timer / .32, 0, 1)) * (1 - rise);
+              this.legs[i].rotation.x = THREE.MathUtils.lerp(this.legs[i].rotation.x, -this.hips.rotation.x - .15, support);
+              this.shins[i].rotation.x = THREE.MathUtils.lerp(this.shins[i].rotation.x, 2.1, support);
+            }
+            this.arms[i].rotation.x = THREE.MathUtils.lerp(this.arms[i].rotation.x, i === lead ? -.92 : -.73, rise);
+            this.arms[i].rotation.z = THREE.MathUtils.lerp(this.arms[i].rotation.z, sign * .15, rise);
+            this.forearms[i].rotation.x = THREE.MathUtils.lerp(this.forearms[i].rotation.x, i === lead ? -1.78 : -1.98, rise);
+          }
+        }
         if (transition) {
           const direction = transition.direction === 'left' ? -1 : transition.direction === 'right' ? 1 : transition.by === f.id ? 1 : -1;
-          const wave = Math.sin(transitionT * Math.PI);
-          this.hips.rotation.z += wave * direction * (transition.flips ? .9 : .3);
-          this.spine.rotation.y += wave * direction * (transition.flips ? .42 : .18);
-          this.hips.position.y += wave * (transition.flips ? .08 : .035);
+          this.hips.rotation.z += effort * direction * (transition.flips ? (top ? -1.45 : 1.45) : .22);
+          this.spine.rotation.y += effort * direction * (transition.flips ? .42 : .26);
+          this.head.rotation.z -= effort * direction * .12;
+          this.hips.position.y += effort * (transition.flips ? .085 : .025);
+          this.legs.forEach((leg, i) => { leg.rotation.z += effort * direction * (i ? -.17 : .17); });
         }
       }
     }

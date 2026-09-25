@@ -1,4 +1,5 @@
 import { RULES, STATS, TECHNIQUES } from './config';
+import { FIGHTERS, type FighterProfile } from './fighters';
 import { strikeLocal } from './motion';
 import { EMPTY_CONTROLS, type Attack, type CombatEvent, type Controls, type DefenseMove, type Fighter, type FighterId, type Grapple, type GroundDirection, type GroundPosition, type MatchResult, type MatchRules, type RoundScore, type Scorecard, type Technique, type TechniqueKind, type Vec2 } from './types';
 export const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -30,7 +31,7 @@ export function groundMoveOptions(g: Grapple, actor: FighterId) {
   return (['advance', 'left', 'right', 'reverse'] as GroundDirection[]).map(direction => groundMoveOption(g, actor, direction)).filter((option): option is GroundMoveOption => !!option);
 }
 const newScore = (): RoundScore => ({ damage: [0, 0], grappling: [0, 0], control: [0, 0], knockdowns: [0, 0] });
-const createFighter = (id: FighterId): Fighter => ({ id, name: id ? 'ALEX VOLK' : 'TYLER', position: { x: id ? 1.5 : -1.5, z: 0 }, velocity: { x: 0, z: 0 }, heading: id ? -Math.PI / 2 : Math.PI / 2, stance: 'orthodox', stanceSwitch: 0, state: 'idle', stats: { ...STATS }, damage: { head: 0, body: 0, leg: 0, balance: 100, stamina: 100 }, attack: null, guard: null, defense: null, defenseTime: 0, counterWindow: 0, stun: 0, cooldown: 0, knockdowns: 0, knockdownTime: 0, reaction: 0, reactionSide: 1, reactionZone: 'head', reactionKind: 'punch', cut: 0, swelling: 0, unanswered: 0, lastHit: -99 });
+const createFighter = (id: FighterId, profile: FighterProfile = FIGHTERS[id]): Fighter => ({ id, name: profile.name, position: { x: id ? 1.5 : -1.5, z: 0 }, velocity: { x: 0, z: 0 }, heading: id ? -Math.PI / 2 : Math.PI / 2, stance: 'orthodox', stanceSwitch: 0, state: 'idle', stats: { ...STATS, ...profile.stats }, damage: { head: 0, body: 0, leg: 0, balance: 100, stamina: 100 }, attack: null, guard: null, defense: null, defenseTime: 0, counterWindow: 0, stun: 0, cooldown: 0, knockdowns: 0, knockdownTime: 0, reaction: 0, reactionSide: 1, reactionZone: 'head', reactionKind: 'punch', cut: 0, swelling: 0, unanswered: 0, lastHit: -99 });
 export function insideCage(p: Vec2, apothem = RULES.cageApothem, radius = .35): Vec2 {
   const result = { ...p };
   // Radial projection satisfies all eight half-planes, including distant corner inputs.
@@ -87,7 +88,7 @@ export function scoreRound(score: RoundScore): [number, number] {
   return delta > 0 ? [10, loser] : [loser, 10];
 }
 export class Combat {
-  fighters: [Fighter, Fighter] = [createFighter(0), createFighter(1)];
+  fighters: [Fighter, Fighter];
   rules: MatchRules; phase: 'ready' | 'fight' | 'break' | 'finished' = 'ready';
   round = 1; remaining: number; breakRemaining = 0; elapsed = 0; paused = false;
   grapple: Grapple | null = null; result: MatchResult | null = null;
@@ -95,11 +96,11 @@ export class Combat {
   inputs: [Controls, Controls] = [EMPTY_CONTROLS(), EMPTY_CONTROLS()];
   private buffer: ({ action: string; direction?: string; until: number } | null)[] = [null, null];
   private recoil: [Vec2, Vec2] = [{ x: 0, z: 0 }, { x: 0, z: 0 }];
-  constructor(rules: Partial<MatchRules> = {}, readonly training = false) { this.rules = { ...RULES, ...rules }; this.remaining = this.rules.roundSeconds; }
+  constructor(rules: Partial<MatchRules> = {}, readonly training = false, readonly profiles: readonly [FighterProfile, FighterProfile] = [FIGHTERS[0], { ...FIGHTERS[1], stats: STATS }]) { this.fighters = [createFighter(0, profiles[0]), createFighter(1, profiles[1])]; this.rules = { ...RULES, ...rules }; this.remaining = this.rules.roundSeconds; }
   start() { if (this.phase === 'ready') { this.phase = 'fight'; this.events.push({ type: 'bell' }, { type: 'message', text: 'RUNDE 1 · FIGHT' }); } }
   command(id: FighterId, input: Controls) {
     this.inputs[id] = input;
-    if (input.action && this.phase === 'fight' && !this.paused) this.buffer[id] = { action: input.action, direction: input.direction, until: this.elapsed + .18 };
+    if (input.action && this.phase === 'fight' && !this.paused) this.buffer[id] = { action: input.action, direction: input.direction, until: this.elapsed + (this.grapple?.mode === 'ground' ? .75 : .18) };
   }
   drainEvents() { return this.events.splice(0); }
   step(dt: number) {
@@ -133,7 +134,7 @@ export class Combat {
     f.damage.balance = Math.min(100, f.damage.balance + dt * 8);
     const regen = f.attack || f.stun > 0 || this.grapple?.mode === 'submission' ? 1.2 : input.guard ? 7 : 12;
     const maximum = Math.max(48, 100 - f.damage.body * .28);
-    f.damage.stamina = Math.min(maximum, f.damage.stamina + regen * dt);
+    f.damage.stamina = Math.min(maximum, f.damage.stamina + regen * f.stats.maxStamina / 100 * dt);
     if (this.elapsed - f.lastHit > 4) f.unanswered = Math.max(0, f.unanswered - dt);
     if (f.state === 'knockedDown') {
       f.knockdownTime -= dt;
@@ -152,7 +153,7 @@ export class Combat {
       const forward = length ? (input.move.x * Math.sin(f.heading) + input.move.z * Math.cos(f.heading)) / length : 0;
       const footwork = forward < -.2 ? .78 : Math.abs(forward) < .45 ? .88 : 1;
       const committed = f.attack && ['kick', 'frontKick', 'sideKick', 'knee'].includes(f.attack.technique.kind) ? .08 : .28;
-      const pace = (f.attack ? committed : f.guard ? .58 : 1) * footwork * (f.stun > 0 ? .12 : 1) * (1 - f.damage.leg * .004) * (1.2 + f.damage.stamina * .007);
+      const pace = (f.attack ? committed : f.guard ? .58 : 1) * footwork * (f.stun > 0 ? .12 : 1) * (1 - f.damage.leg * .004) * (1.2 + f.damage.stamina * .007) * f.stats.speed;
       const vx = length ? input.move.x / Math.max(1, length) * pace : 0;
       const vz = length ? input.move.z / Math.max(1, length) * pace : 0;
       const response = 1 - Math.exp(-dt * (length ? 10 : 16));
@@ -174,15 +175,15 @@ export class Combat {
     if (action === 'stand') return this.tryStand(f);
     if (action === 'grapple' || action === 'takedown') return this.tryGrapple(f, action, direction);
     if (action === 'submission') {
-      if (this.grapple?.mode === 'ground' && this.grapple.position === 'mount' && this.grapple.top === f.id && f.damage.stamina > 24 && !f.attack) {
+      if (this.grapple?.mode === 'ground' && !this.grapple.transition && this.grapple.position === 'mount' && this.grapple.top === f.id && f.damage.stamina > 24 && !f.attack) {
         this.grapple.mode = 'submission'; this.grapple.progress = .28; this.grapple.timer = 0; this.grapple.transition = null;
-        this.fighters.forEach(x => { x.state = 'submission'; x.attack = null; }); this.message('ARMBAR · Halte G zum Angriff / LEERTASTE zur Verteidigung'); return true;
+        this.fighters.forEach(x => { x.state = 'submission'; x.attack = null; }); this.message('ARMBAR · U halten zum Angriff / LEERTASTE zur Verteidigung'); return true;
       } return false;
     }
     let technique = TECHNIQUES[action];
     if (!technique) return false;
     if (this.grapple) {
-      if (this.grapple.mode === 'submission' || this.grapple.mode === 'takedown' || this.grapple.transition) return false;
+      if (this.grapple.mode === 'submission' || this.grapple.mode === 'takedown' || this.grapple.mode === 'standup' || this.grapple.transition) return false;
       const legStrike = ['kick', 'frontKick', 'sideKick', 'knee'].includes(technique.kind);
       if (this.grapple.mode === 'ground' && legStrike) return false;
       if (this.grapple.mode === 'clinch' && legStrike && technique.kind !== 'knee') return false;
@@ -194,7 +195,7 @@ export class Combat {
       if (a.elapsed < t.windup + t.active + t.comboAt || !this.canChain(t, technique)) return false;
     }
     if (f.damage.stamina < technique.cost + 2) return false;
-    f.damage.stamina -= technique.cost; f.attack = { technique, elapsed: 0, hit: false, previousTip: null }; f.guard = null; f.state = 'attacking';
+    f.damage.stamina -= technique.cost; f.attack = { technique: { ...technique, windup: technique.windup / f.stats.speed, active: technique.active / f.stats.speed, recovery: technique.recovery / f.stats.speed }, elapsed: 0, hit: false, previousTip: null }; f.guard = null; f.state = 'attacking';
     return true;
   }
   private tryDefense(f: Fighter, action: string) {
@@ -249,7 +250,8 @@ export class Combat {
     const vulnerable = (target.attack && target.attack.elapsed < target.attack.technique.windup ? 1.2 : 1) * (attacker.counterWindow > 0 ? 1.35 : 1);
     const anatomy = t.target === 'chin' ? 1.12 : t.target === 'temple' ? 1.08 : t.target === 'liver' ? 1.14 : t.target === 'solarPlexus' ? 1.08 : t.target === 'thigh' ? 1.06 : 1;
     const defenseScale = defense === 'parry' || defense === 'check' || defense === 'catch' ? .025 : defense === 'guard' ? .12 : 1;
-    const damage = t.damage * attacker.stats.power / target.stats.resilience * (.65 + attacker.damage.stamina / 200) * clamp(1 + relativeSpeed * .075, .75, 1.22) * vulnerable * anatomy * impactQuality(attacker, target, t) * defenseScale;
+    const groundPosition = this.grapple?.mode === 'ground' && t.kind === 'groundPunch' ? { guard: .72, halfGuard: .88, sideControl: 1.08, mount: 1.25 }[this.grapple.position] : 1;
+    const damage = t.damage * attacker.stats.power * (this.grapple ? 1 : attacker.stats.striking) / target.stats.resilience * (.65 + attacker.damage.stamina / 200) * clamp(1 + relativeSpeed * .075, .75, 1.22) * vulnerable * anatomy * impactQuality(attacker, target, t) * groundPosition * defenseScale;
     target.damage[t.zone] = clamp(target.damage[t.zone] + damage, 0, 120);
     const balance = t.target === 'chin' ? 3.15 : t.target === 'temple' ? 2.65 : t.zone === 'head' ? 2.4 : t.target === 'solarPlexus' ? 1.35 : 1;
     target.damage.balance = Math.max(0, target.damage.balance - damage * balance);
@@ -261,7 +263,7 @@ export class Combat {
     target.lastHit = this.elapsed;
     if (!blocked) { target.unanswered += 1; attacker.unanswered = 0; }
     this.score.damage[attacker.id] += damage;
-    this.events.push({ type: 'hit', attacker: attacker.id, target: target.id, technique: t.id, zone: t.zone, strength: damage, blocked, defense, position: { ...target.position } });
+    this.events.push({ type: 'hit', attacker: attacker.id, target: target.id, technique: t.id, zone: t.zone, strength: damage, blocked, grounded: this.grapple?.mode === 'ground', defense, position: { ...target.position } });
     if (timedParry) { target.counterWindow = .82; attacker.stun = Math.max(attacker.stun, .15); attacker.attack = null; this.message('PARADE · KONTERFENSTER'); }
     if (checked) { target.counterWindow = .58; attacker.damage.leg = clamp(attacker.damage.leg + t.damage * .42, 0, 120); attacker.damage.balance = Math.max(0, attacker.damage.balance - 13); attacker.reaction = .42; attacker.reactionZone = 'leg'; attacker.reactionKind = 'kick'; this.message('LOW-KICK GECHECKT'); }
     if (caught) { target.counterWindow = .9; attacker.stun = Math.max(attacker.stun, .28); attacker.attack = null; attacker.cooldown = .35; this.message('BODY-KICK GEFANGEN · KONTER'); }
@@ -286,7 +288,7 @@ export class Combat {
     }
   }
   private tryGrapple(f: Fighter, action: string, direction?: string) {
-    if (f.attack || f.damage.stamina < 16) return false;
+    if (f.attack || f.damage.stamina < 16 || this.grapple?.mode === 'standup') return false;
     const enemy = this.fighters[other(f.id)];
     if (!this.grapple) {
       if (distance(f.position, enemy.position) > (action === 'takedown' ? 1.65 : 1.22)) return false;
@@ -304,53 +306,68 @@ export class Combat {
       const moveDirection = (direction ?? 'advance') as GroundDirection;
       const option = groundMoveOption(g, f.id, moveDirection);
       if (!option) return false;
-      const index = GROUND_POSITIONS.indexOf(g.position), duration = option.flips ? .96 : .84 + index * .04;
+      const index = GROUND_POSITIONS.indexOf(g.position), duration = (option.flips ? .78 : .6 + index * .045) / f.stats.grappling;
       const targetSide = moveDirection === 'left' ? -1 : moveDirection === 'right' ? 1 : (g.side ?? 1);
       g.transition = { by: f.id, direction: moveDirection, elapsed: 0, duration, from: g.position, to: option.target, targetSide, flips: option.flips };
       f.damage.stamina -= g.top === f.id ? 8 : 11; f.cooldown = duration;
       this.message(option.label.toUpperCase()); return true;
     }
     if (g.mode === 'clinch' && !g.transition) {
-      g.transition = { by: f.id, direction: (direction ?? 'advance') as GroundDirection, elapsed: 0, duration: .8 }; f.damage.stamina -= 10; f.cooldown = .9; return true;
+      g.transition = { by: f.id, direction: (direction ?? 'advance') as GroundDirection, elapsed: 0, duration: .8 / f.stats.grappling }; f.damage.stamina -= 10; f.cooldown = .9 / f.stats.grappling; return true;
     }
     return false;
   }
   private tryStand(f: Fighter) {
-    const g = this.grapple; if (!g || g.mode === 'submission' || g.mode === 'takedown' || g.transition || f.attack) return false;
+    const g = this.grapple; if (!g || g.mode === 'submission' || g.mode === 'takedown' || g.mode === 'standup' || g.transition || f.attack) return false;
     if (g.mode === 'clinch' || g.top === f.id || (g.position === 'guard' && this.fighters[g.top].damage.stamina < f.damage.stamina + 8)) {
       if (f.damage.stamina < 12) return false;
-      f.damage.stamina -= 12; this.release(); this.message('ZURÜCK IM STAND'); return true;
+      f.damage.stamina -= 12;
+      if (g.mode === 'clinch') { this.release(); this.message('CLINCH GELÖST'); }
+      else { g.mode = 'standup'; g.timer = 0; this.fighters.forEach(x => { x.attack = null; x.state = 'ground'; }); this.message('AUFSTEHEN'); }
+      return true;
     }
     this.message('Erst Position verbessern: WASD drücken'); f.cooldown = .6; return true;
   }
   private updateGrapple(dt: number) {
     const g = this.grapple!; g.timer += dt;
-    const top = this.fighters[g.top], bottom = this.fighters[other(g.top)];
+    let top = this.fighters[g.top], bottom = this.fighters[other(g.top)];
+    if (g.mode === 'standup') {
+      // Separate while the fighters rise, so returning to footwork has no position jump.
+      const d = distance(top.position, bottom.position);
+      const ax = Math.sin(top.heading), az = Math.cos(top.heading);
+      const travel = Math.min(dt * 1.1, Math.max(0, 1.18 - d) / 2);
+      top.position = insideCage({ x: top.position.x - ax * travel, z: top.position.z - az * travel }, this.rules.cageApothem);
+      bottom.position = insideCage({ x: bottom.position.x + ax * travel, z: bottom.position.z + az * travel }, this.rules.cageApothem);
+      if (g.timer >= .62) { this.release(false); this.message('ZURÜCK IM STAND'); }
+      return;
+    }
     this.score.control[g.top] += dt;
+    if (g.mode === 'takedown' && g.timer >= .35 && bottom.guard === 'low' && bottom.damage.stamina >= 15) {
+      bottom.damage.stamina -= 12; this.release(); top.stun = .35; this.message('SPRAWL · Takedown abgewehrt');
+      return;
+    }
     if (g.mode === 'takedown' && g.timer >= .78) {
-      const sprawl = bottom.guard === 'low' && bottom.damage.stamina >= 15;
-      if (sprawl) { bottom.damage.stamina -= 12; this.release(); top.stun = .35; this.message('SPRAWL · Takedown abgewehrt'); }
-      else { g.mode = 'ground'; g.timer = 0; this.fighters.forEach(f => { f.state = 'ground'; f.attack = null; }); this.score.grappling[g.top] += 6; this.message('AM BODEN · Guard'); }
+      g.mode = 'ground'; g.timer = 0; this.fighters.forEach(f => { f.state = 'ground'; f.attack = null; }); this.score.grappling[g.top] += 6; this.message('AM BODEN · Guard');
       return;
     }
     if (g.transition) {
       const tr = g.transition, duration = tr.duration ?? .8;
       if (tr.defended) {
         tr.elapsed = Math.max(0, tr.elapsed - dt * 1.8);
-        if (tr.elapsed <= 0) g.transition = null;
+        if (tr.elapsed <= 0) { g.transition = null; this.fighters[tr.by].cooldown = Math.min(this.fighters[tr.by].cooldown, .18); }
       } else {
         tr.elapsed += dt;
         if (!tr.resolved && tr.elapsed >= duration * .62) {
           tr.resolved = true;
           const actor = this.fighters[tr.by], defender = this.fighters[other(tr.by)];
-          const defended = defender.guard !== null && defender.damage.stamina >= actor.damage.stamina * .55 && defender.damage.stamina > 10;
+          const defended = defender.guard !== null && defender.damage.stamina * defender.stats.grappling >= actor.damage.stamina * actor.stats.grappling * .55 && defender.damage.stamina > 10;
           if (defended) { tr.defended = true; defender.damage.stamina -= 9; this.message('ÜBERGANG ABGEWEHRT'); }
         }
         if (!tr.defended && tr.elapsed >= duration) {
           if (g.mode === 'clinch') { g.top = tr.by; this.score.grappling[tr.by] += 2; this.message('CLINCH-KONTROLLE'); }
           else {
             g.position = tr.to ?? g.position; g.side = tr.targetSide ?? g.side ?? 1;
-            if (tr.flips) { g.top = tr.by; g.side = (-(g.side ?? 1)) as -1 | 1; this.message('SWEEP · Position gedreht'); }
+            if (tr.flips) { g.top = tr.by; g.side = (-(g.side ?? 1)) as -1 | 1; top = this.fighters[g.top]; bottom = this.fighters[other(g.top)]; this.message('SWEEP · Position gedreht'); }
             this.score.grappling[tr.by] += 3;
           }
           g.transition = null;
@@ -361,7 +378,7 @@ export class Combat {
       const attacking = this.inputs[g.top].action === 'holdSubmission';
       const defending = this.inputs[other(g.top)].guard !== null;
       const advantage = (top.damage.stamina - bottom.damage.stamina) / 250;
-      g.progress = clamp(g.progress + dt * ((attacking ? .19 : -.13) - (defending ? .22 : 0) + advantage), 0, 1);
+      g.progress = clamp(g.progress + dt * ((attacking ? .19 * top.stats.grappling : -.13) - (defending ? .22 * bottom.stats.grappling : 0) + advantage), 0, 1);
       top.damage.stamina = Math.max(0, top.damage.stamina - dt * (attacking ? 5 : 1));
       bottom.damage.stamina = Math.max(0, bottom.damage.stamina - dt * (defending ? 7 : 1));
       if (g.progress >= 1) {
@@ -382,7 +399,7 @@ export class Combat {
       const from = layout(tr.from ?? g.position, g.side ?? 1), to = layout(tr.to ?? g.position, tr.targetSide ?? g.side ?? 1);
       longitudinal = from.longitudinal + (to.longitudinal - from.longitudinal) * eased;
       lateral = from.lateral + (to.lateral - from.lateral) * eased;
-      if (tr.flips) { longitudinal *= 1 - 2 * eased; lateral *= 1 - 2 * eased; }
+      if (tr.flips) lateral += (tr.direction === 'left' ? -1 : 1) * Math.sin(p * Math.PI) * .18;
     }
     const dx = (Math.sin(top.heading) * longitudinal + Math.cos(top.heading) * lateral) / 2;
     const dz = (Math.cos(top.heading) * longitudinal - Math.sin(top.heading) * lateral) / 2;
@@ -390,9 +407,9 @@ export class Combat {
     top.position = insideCage({ x: top.position.x + (middle.x + dx - top.position.x) * blend, z: top.position.z + (middle.z + dz - top.position.z) * blend }, this.rules.cageApothem);
     bottom.position = insideCage({ x: bottom.position.x + (middle.x - dx - bottom.position.x) * blend, z: bottom.position.z + (middle.z - dz - bottom.position.z) * blend }, this.rules.cageApothem);
   }
-  private release() {
+  private release(spread = true) {
     this.grapple = null;
-    this.fighters.forEach(f => { f.state = 'idle'; f.attack = null; f.cooldown = .6; f.position = insideCage({ x: f.position.x - Math.sin(f.heading) * .42, z: f.position.z - Math.cos(f.heading) * .42 }, this.rules.cageApothem); });
+    this.fighters.forEach(f => { f.state = 'idle'; f.attack = null; f.cooldown = .4; if (spread) f.position = insideCage({ x: f.position.x - Math.sin(f.heading) * .42, z: f.position.z - Math.cos(f.heading) * .42 }, this.rules.cageApothem); });
   }
   private separateFighters() {
     const [a, b] = this.fighters; const d = distance(a.position, b.position);

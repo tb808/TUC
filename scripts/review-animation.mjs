@@ -9,7 +9,7 @@ try {
   await page.goto('http://127.0.0.1:5173/');
   await page.waitForFunction(() => window.__TUC__?.view && !document.querySelector('#start').disabled, undefined, { timeout: 60000 });
   await page.locator('#start').click();
-  const poses = process.argv.length > 2 ? process.argv.slice(2) : ['stance', 'southpaw', 'jab', 'hook', 'uppercut', 'elbow', 'body', 'low-kick', 'front-kick', 'side-kick', 'knee', 'high-kick', 'parry', 'slip', 'check', 'clinch', 'guard', 'mount', 'submission'];
+  const poses = process.argv.length > 2 ? process.argv.slice(2) : ['stance', 'southpaw', 'jab', 'hook', 'uppercut', 'elbow', 'body', 'low-kick', 'front-kick', 'side-kick', 'knee', 'high-kick', 'parry', 'slip', 'check', 'clinch', 'guard', 'half-guard', 'side-control', 'mount', 'ground-punch', 'sweep', 'standup', 'submission'];
   for (const pose of poses) {
     await page.evaluate(async pose => {
       const { TECHNIQUES } = await import('/src/game/config.ts');
@@ -29,10 +29,14 @@ try {
         const technique = TECHNIQUES[actions[pose]];
         match.fighters[0].attack = { technique, elapsed: technique.windup + technique.active / 2, hit: false, previousTip: null };
       }
-      if (['clinch', 'guard', 'mount', 'submission'].includes(pose)) {
-        match.grapple = { mode: pose === 'clinch' ? 'clinch' : pose === 'submission' ? 'submission' : 'ground', top: 0, position: pose === 'guard' ? 'guard' : 'mount', timer: 1, progress: .3, transition: null };
+      if (['clinch', 'guard', 'half-guard', 'side-control', 'mount', 'ground-punch', 'sweep', 'standup', 'submission'].includes(pose)) {
+        const position = pose === 'guard' || pose === 'sweep' || pose === 'standup' ? 'guard' : pose === 'half-guard' ? 'halfGuard' : pose === 'side-control' ? 'sideControl' : 'mount';
+        match.grapple = { mode: pose === 'clinch' ? 'clinch' : pose === 'submission' ? 'submission' : 'ground', top: 0, position, timer: 1, progress: .3, transition: null };
         match.paused = false; match.step(1 / 60); match.paused = true;
         for (let i = 0; i < 40; i++) { match.paused = false; match.step(1 / 60); match.paused = true; }
+        if (pose === 'ground-punch') { const technique = TECHNIQUES['groundPunch-1']; match.fighters[0].attack = { technique, elapsed: technique.windup + technique.active / 2, hit: false, previousTip: null }; }
+        if (pose === 'sweep') match.grapple.transition = { by: 1, direction: 'left', elapsed: .39, duration: .78, from: 'guard', to: 'guard', targetSide: -1, flips: true };
+        if (pose === 'standup') { match.grapple.mode = 'standup'; match.grapple.timer = .31; }
       }
       view.camera.position.set(.3, 3.05, 6.3);
       for (let i = 0; i < 90; i++) view.rigs.forEach((rig, id) => rig.update(match.fighters[id], match.grapple, 2, 1 / 60, view.physics.rotation(id), null));

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { Combat, canStrikeHit, groundMoveOptions, impactQuality, insideCage, scoreRound } from '../src/game/combat';
+import { Combat, canStrikeHit, distance, groundMoveOptions, impactQuality, insideCage, scoreRound } from '../src/game/combat';
 import { DIFFICULTIES, STATS, TECHNIQUES } from '../src/game/config';
+import { FIGHTERS, randomOpponent } from '../src/game/fighters';
 import { OpponentAI, seededRandom } from '../src/game/ai';
 import { EMPTY_CONTROLS, type Attack, type FighterId } from '../src/game/types';
 
@@ -8,6 +9,23 @@ function tick(game: Combat, seconds: number) { for (let i = 0; i < Math.ceil(sec
 function arrange(distance = 1.12) { const g = new Combat(); g.start(); g.fighters[0].position = { x: -distance / 2, z: 0 }; g.fighters[1].position = { x: distance / 2, z: 0 }; return g; }
 function act(g: Combat, id: FighterId, action: string) { g.command(id, { ...EMPTY_CONTROLS(), action }); }
 function hit(g: Combat, action = 'punch-1-head') { act(g, 0, action); tick(g, .65); }
+
+describe('Kämpferauswahl', () => {
+  it('offers five distinct appearances and strengths', () => {
+    expect(FIGHTERS).toHaveLength(5);
+    expect(new Set(FIGHTERS.map(fighter => fighter.id)).size).toBe(5);
+    expect(new Set(FIGHTERS.map(fighter => fighter.visual.shorts)).size).toBe(5);
+    expect(FIGHTERS.find(fighter => fighter.id === 'alex')!.stats.striking).toBeGreaterThan(FIGHTERS.find(fighter => fighter.id === 'malik')!.stats.striking);
+    expect(FIGHTERS.find(fighter => fighter.id === 'malik')!.stats.grappling).toBeGreaterThan(FIGHTERS.find(fighter => fighter.id === 'alex')!.stats.grappling);
+  });
+  it('uses selected profiles and never draws the player as a random opponent', () => {
+    const player = FIGHTERS[3], rival = FIGHTERS[2], match = new Combat({}, false, [player, rival]);
+    expect(match.fighters.map(fighter => fighter.name)).toEqual([player.name, rival.name]);
+    expect(match.fighters[0].stats.speed).toBe(player.stats.speed);
+    expect(match.fighters[1].stats.grappling).toBe(rival.stats.grappling);
+    for (const roll of [0, .25, .5, .75, .999]) expect(randomOpponent(player.id, () => roll).id).not.toBe(player.id);
+  });
+});
 
 describe('Treffergeometrie und Timing', () => {
   it('does not hit during preparation or recovery, behind the attacker or out of range', () => {
@@ -96,7 +114,8 @@ describe('Clinch, Boden und Kampfenden', () => {
     const g = arrange(); act(g, 0, 'takedown'); tick(g, .9);
     g.command(1, { ...EMPTY_CONTROLS(), guard: 'high' }); act(g, 0, 'grapple'); tick(g, 1); expect(g.grapple?.position).toBe('guard');
     g.command(1, EMPTY_CONTROLS()); act(g, 1, 'grapple'); tick(g, 1); expect(g.grapple?.top).toBe(1);
-    act(g, 1, 'stand'); tick(g, .1); expect(g.grapple).toBeNull();
+    act(g, 1, 'stand'); tick(g, .1); expect(g.grapple?.mode).toBe('standup');
+    tick(g, .6); expect(g.grapple).toBeNull();
   });
   it('maps each available ground direction to a visible destination and moves continuously', () => {
     const g = arrange(); act(g, 0, 'takedown'); tick(g, .9);
@@ -109,7 +128,38 @@ describe('Clinch, Boden und Kampfenden', () => {
     expect(Math.hypot(g.fighters[0].position.x - before.x, g.fighters[0].position.z - before.z)).toBeGreaterThan(.005);
     tick(g, .6); expect(g.grapple?.position).toBe('halfGuard'); expect(g.grapple?.side).toBe(1);
   });
+  it('rolls through a sweep and gives a stand-up time to complete', () => {
+    const g = arrange(); act(g, 0, 'takedown'); tick(g, .9);
+    act(g, 1, 'grapple');
+    let largestStep = 0;
+    for (let i = 0; i < 55; i++) {
+      const before = g.fighters.map(f => ({ ...f.position })); g.step(1 / 60);
+      for (let j = 0; j < 2; j++) largestStep = Math.max(largestStep, Math.hypot(g.fighters[j].position.x - before[j].x, g.fighters[j].position.z - before[j].z));
+    }
+    expect(g.grapple?.top).toBe(1);
+    expect(largestStep).toBeLessThan(.05);
+    act(g, 1, 'stand'); tick(g, .15);
+    expect(g.grapple?.mode).toBe('standup');
+    expect(g.fighters[1].attack).toBeNull();
+    tick(g, .5); expect(g.grapple).toBeNull();
+    expect(distance(g.fighters[0].position, g.fighters[1].position)).toBeGreaterThan(.75);
+  });
+  it('keeps one early ground command ready for the next position', () => {
+    const g = arrange(); act(g, 0, 'takedown'); tick(g, .9);
+    act(g, 0, 'grapple'); tick(g, .2);
+    act(g, 0, 'grapple'); tick(g, .8);
+    expect(g.grapple?.position).toBe('halfGuard');
+    expect(g.grapple?.transition?.to).toBe('sideControl');
+  });
   it('submission defense escapes without a stuck state', () => { const g = arrange(); g.grapple = { mode: 'submission', top: 0, position: 'mount', timer: 0, progress: .1, transition: null }; g.fighters.forEach(f => f.state = 'submission'); g.command(1, { ...EMPTY_CONTROLS(), guard: 'high' }); tick(g, 1); expect(g.grapple?.mode).toBe('ground'); expect(g.result).toBeNull(); });
+  it('makes mount strikes stronger than strikes trapped inside guard', () => {
+    const strikeFrom = (position: 'guard' | 'mount') => {
+      const g = arrange(); g.grapple = { mode: 'ground', top: 0, position, timer: 0, progress: 0, transition: null };
+      g.fighters.forEach(f => f.state = 'ground'); act(g, 0, 'punch-1-head'); tick(g, .36);
+      return g.fighters[1].damage.head;
+    };
+    expect(strikeFrom('mount')).toBeGreaterThan(strikeFrom('guard') * 1.3);
+  });
   it('KO is terminal and cannot apply more damage afterwards', () => { const g = arrange(1.05); g.fighters[1].damage.head = 98; hit(g); expect(g.result?.method).toBe('KO'); const damage = g.fighters[1].damage.head; tick(g, 10); expect(g.fighters[1].damage.head).toBe(damage); });
   it('repeated knockdowns trigger TKO', () => { const g = arrange(1.05); g.fighters[1].knockdowns = 2; g.fighters[1].damage.balance = 0; hit(g); expect(g.result?.method).toBe('TKO'); });
   it('unanswered ground strikes lead to referee stoppage', () => { const g = arrange(); g.grapple = { mode: 'ground', top: 0, position: 'mount', timer: 0, progress: 0, transition: null }; g.fighters.forEach(f => f.state = 'ground'); g.fighters[1].damage.head = 65; g.fighters[1].unanswered = 8; g.fighters[1].lastHit = g.elapsed; hit(g); expect(g.result?.method).toBe('TKO'); });

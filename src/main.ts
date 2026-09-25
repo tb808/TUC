@@ -9,6 +9,10 @@ import { ARENAS } from './render/arenaDetails';
 import { EMPTY_CONTROLS, type Controls } from './game/types';
 import { TRAINING_LESSONS, TrainingCoach } from './game/training';
 import { walkoutAt, WALKOUT_DURATION, type WalkoutStage } from './game/walkout';
+import { FIGHTERS, fighterProfile, randomOpponent, type FighterProfile } from './game/fighters';
+
+const portrait = (profile: FighterProfile) => `<span class="fighter-portrait" style="--portrait-skin:${profile.visual.skin};--portrait-shorts:${profile.visual.shorts};--portrait-hair:${profile.visual.hair};--portrait-accent:${profile.visual.accent}"><i></i></span>`;
+const fighterOptions = (corner: 'player' | 'opponent') => FIGHTERS.map(profile => `<button type="button" data-${corner}-fighter="${profile.id}" aria-pressed="false">${portrait(profile)}<strong>${profile.name}</strong><small>${profile.specialty}</small></button>`).join('');
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
@@ -21,17 +25,19 @@ app.innerHTML = `
     <div class="first-step"><b>EMPFOHLENER ERSTER SCHRITT</b><span>Lerne zuerst die Grundlagen im Training.</span></div>
     <div class="mode-switch" role="group" aria-label="Spielmodus"><button id="mode-training" class="selected" aria-pressed="true"><small>EMPFOHLEN</small>TRAINING</button><button id="mode-fight" aria-pressed="false"><small>3 × 3 MIN</small>TESTKAMPF</button></div>
     <div class="mode-line"><span id="mode-number">01</span><strong id="mode-name">TRAININGSMODUS</strong><small id="mode-detail">OHNE GEGENWEHR</small></div>
+    <section class="roster-select" aria-labelledby="player-select-label"><div class="roster-heading"><span id="player-select-label">DEIN KÄMPFER</span><span>BLAUE ECKE</span></div><div class="fighter-options">${fighterOptions('player')}</div><div id="player-profile" class="fighter-profile"></div></section>
     <section id="training-panel" class="training-select" aria-labelledby="training-select-label">
       <div class="training-heading"><span id="training-select-label">WAS WILLST DU LERNEN?</span><span id="lesson-number">01 / ${TRAINING_LESSONS.length.toString().padStart(2, '0')}</span></div>
       <div class="lesson-grid">${TRAINING_LESSONS.map((lesson, index) => `<button data-lesson="${lesson.id}" ${index === 0 ? 'class="selected" aria-pressed="true"' : 'aria-pressed="false"'}><strong>${lesson.name}</strong><span>${lesson.subtitle}</span></button>`).join('')}</div>
     </section>
     <div id="fight-settings" hidden>
+    <section class="roster-select opponent-select" aria-labelledby="opponent-select-label"><div class="roster-heading"><span id="opponent-select-label">DEIN GEGNER</span><span>ROTE ECKE</span></div><div class="fighter-options">${fighterOptions('opponent')}<button type="button" id="opponent-random" aria-pressed="false"><span class="random-icon">?</span><strong>ZUFALL</strong><small>NEUE PAARUNG</small></button></div><div id="opponent-profile" class="fighter-profile"></div></section>
     <section class="arena-select" aria-labelledby="arena-select-label">
       <div class="arena-heading"><span id="arena-select-label">DEINE ARENA</span><span id="arena-number">01 / 05</span></div>
       <div class="arena-picker"><button id="arena-down" aria-label="Vorherige Arena">←</button><div><strong id="arena-name">${ARENAS[0].name}</strong><p id="arena-description">${ARENAS[0].subtitle}</p></div><button id="arena-up" aria-label="Nächste Arena">→</button></div>
       <div class="arena-dots" aria-label="Arena direkt auswählen">${ARENAS.map((arena, index) => `<button data-arena="${index}" aria-label="${arena.name}" ${index === 0 ? 'class="selected" aria-current="true"' : ''}></button>`).join('')}</div>
     </section>
-    <div class="difficulty-heading"><label for="difficulty">DEIN GEGNER</label><span id="difficulty-number">STUFE 03 / 05</span></div>
+    <div class="difficulty-heading"><label for="difficulty">KI-SCHWIERIGKEIT</label><span id="difficulty-number">STUFE 03 / 05</span></div>
     <div class="difficulty-row"><button id="difficulty-down" aria-label="Schwierigkeit verringern">−</button><div><strong id="difficulty-name">Profi</strong><p id="difficulty-description">Lücken bleiben selten unbestraft.</p></div><button id="difficulty-up" aria-label="Schwierigkeit erhöhen">+</button></div>
     <select id="difficulty" aria-label="Schwierigkeitsstufe">${DIFFICULTIES.map(p => `<option value="${p.level}" ${p.level === 3 ? 'selected' : ''}>${p.level} · ${p.name}</option>`).join('')}</select>
     <div class="difficulty-ticks" aria-hidden="true">${[1,2,3,4,5].map(n => `<i data-level="${n}"></i>`).join('')}</div>
@@ -42,7 +48,7 @@ app.innerHTML = `
   </main>
   <div id="arena-caption"><span class="caption-line"></span><div><strong>THE PROVING GROUND</strong><p>Ein Oktagon. Keine Ausreden.</p></div><span class="arena-code">TUC—001<br>TRAINING FACILITY</span></div>
   <section id="hud" hidden aria-label="Kampfstatus">
-    <div class="fighter-hud blue"><div><small>BLAUE ECKE</small><strong>TYLER</strong></div><div class="stamina-track"><i id="player-stamina"></i></div><span id="player-state">BEREIT</span></div>
+    <div class="fighter-hud blue"><div><small>BLAUE ECKE</small><strong id="player-name">TYLER</strong></div><div class="stamina-track"><i id="player-stamina"></i></div><span id="player-state">BEREIT</span></div>
     <div class="round-hud"><span id="round">RUNDE 1 / 3</span><strong id="timer">3:00</strong><small id="fight-level">PROFI</small></div>
     <div class="fighter-hud red"><div><small id="opponent-corner">ROTE ECKE</small><strong id="opponent-name">ALEX VOLK</strong></div><div class="stamina-track"><i id="opponent-stamina"></i></div><span id="opponent-state">BEREIT</span></div>
   </section>
@@ -61,6 +67,7 @@ app.innerHTML = `
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 type GameMode = 'training' | 'fight';
 let game = new Combat(), ai = new OpponentAI(3), view: ArenaView, level = 3, arenaIndex = 0, active = false, modalType = '', returnFocus: HTMLElement | null = null;
+let playerProfile = FIGHTERS[0], opponentChoice = FIGHTERS[1].id, activeOpponent = FIGHTERS[1];
 let mode: GameMode = 'training', lessonId = TRAINING_LESSONS[0].id, coach: TrainingCoach | null = null, playerInput: Controls = EMPTY_CONTROLS();
 let messageTime = 0, last = performance.now(), accumulator = 0, hitStop = 0, renderTime = 0, breathTime = 0;
 let walkoutElapsed: number | null = null, walkoutStage: WalkoutStage | null = null;
@@ -93,6 +100,23 @@ function setArena(value: number) {
   document.querySelectorAll<HTMLElement>('[data-arena]').forEach(node => { const selected = Number(node.dataset.arena) === arenaIndex; node.classList.toggle('selected', selected); if (selected) node.setAttribute('aria-current', 'true'); else node.removeAttribute('aria-current'); });
   app.style.setProperty('--lime', arena.accent); view?.setArena(arenaIndex);
 }
+function profileHTML(profile: FighterProfile) {
+  const ratings: [string, number][] = [['STRIKING', profile.stats.striking], ['GRAPPLING', profile.stats.grappling], ['POWER', profile.stats.power], ['TEMPO', profile.stats.speed], ['NEHMERQUALITÄT', profile.stats.resilience], ['AUSDAUER', profile.stats.maxStamina / 100]];
+  return `<strong>${profile.nickname}</strong><p>${profile.description}</p><div class="fighter-ratings">${ratings.map(([name, score]) => `<div><span>${name}</span><i><b style="width:${Math.round(score / 1.3 * 100)}%"></b></i></div>`).join('')}</div>`;
+}
+function setPlayer(id: string) {
+  playerProfile = fighterProfile(id);
+  document.querySelectorAll<HTMLButtonElement>('[data-player-fighter]').forEach(button => { const selected = button.dataset.playerFighter === playerProfile.id; button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected)); });
+  el('player-profile').innerHTML = profileHTML(playerProfile); previewFighters();
+}
+function setOpponent(id: string) {
+  opponentChoice = id;
+  document.querySelectorAll<HTMLButtonElement>('[data-opponent-fighter]').forEach(button => { const selected = button.dataset.opponentFighter === id; button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected)); });
+  const random = id === 'random'; el('opponent-random').classList.toggle('selected', random); el('opponent-random').setAttribute('aria-pressed', String(random));
+  el('opponent-profile').innerHTML = random ? '<strong>ÜBERRASCHUNGSGEGNER</strong><p>Bei jedem Kampf wird einer der anderen vier Kämpfer gezogen.</p>' : profileHTML(fighterProfile(id));
+  previewFighters();
+}
+function previewFighters() { if (view && !active) view.setFighters([playerProfile, opponentChoice === 'random' ? FIGHTERS.find(fighter => fighter.id !== playerProfile.id)! : fighterProfile(opponentChoice)]); }
 function setMode(value: GameMode) {
   mode = value; const training = mode === 'training';
   el('mode-training').classList.toggle('selected', training); el('mode-training').setAttribute('aria-pressed', String(training));
@@ -123,9 +147,10 @@ function updateCoach(completedStep = false) {
 function start() {
   void audio.start().catch(() => { el('sound-toggle').textContent = 'TON NICHT VERFÜGBAR'; });
   const training = mode === 'training';
-  game = new Combat(training ? { rounds: 1, roundSeconds: 86400 } : {}, training); ai = new OpponentAI(level); coach = training ? new TrainingCoach(TRAINING_LESSONS.find(lesson => lesson.id === lessonId) ?? TRAINING_LESSONS[0]) : null; active = true; closeModal(); keyboard.clear();
+  activeOpponent = training ? FIGHTERS[1] : opponentChoice === 'random' ? randomOpponent(playerProfile.id) : fighterProfile(opponentChoice);
+  game = new Combat(training ? { rounds: 1, roundSeconds: 86400 } : {}, training, [playerProfile, activeOpponent]); ai = new OpponentAI(level); coach = training ? new TrainingCoach(TRAINING_LESSONS.find(lesson => lesson.id === lessonId) ?? TRAINING_LESSONS[0]) : null; active = true; closeModal(); keyboard.clear(); view.setFighters([playerProfile, activeOpponent]);
   el('menu').hidden = true; el('arena-caption').hidden = true; el('hud').hidden = false; el('fight-controls').hidden = !training; el('footer').hidden = true; el('arena').classList.remove('menu-view'); app.classList.add('in-fight');
-  el('training-coach').hidden = !training; el('opponent-name').textContent = training ? 'TRAININGSDUMMY' : 'ALEX VOLK'; el('opponent-corner').textContent = training ? 'PASSIVER PARTNER' : 'ROTE ECKE';
+  el('training-coach').hidden = !training; el('player-name').textContent = playerProfile.name; el('opponent-name').textContent = training ? 'TRAININGSDUMMY' : activeOpponent.name; el('opponent-corner').textContent = training ? 'PASSIVER PARTNER' : 'ROTE ECKE';
   el('fight-level').textContent = training ? (coach?.lesson.name.toUpperCase() ?? 'TRAINING') : DIFFICULTIES[level - 1].name.toUpperCase(); accumulator = 0; hitStop = 0; playerInput = EMPTY_CONTROLS();
   walkoutElapsed = training ? null : 0; walkoutStage = null; el('walkout').hidden = training; app.classList.toggle('walkout-active', !training);
   if (training) game.start(); else updateWalkout();
@@ -134,7 +159,8 @@ function start() {
 function updateWalkout() {
   if (walkoutElapsed === null) return;
   const presentation = walkoutAt(walkoutElapsed), beat = presentation.beat;
-  el('walkout-kicker').textContent = beat.kicker; el('walkout-title').textContent = beat.title; el('walkout-detail').textContent = beat.detail;
+  el('walkout-kicker').textContent = beat.kicker; el('walkout-title').textContent = beat.stage === 'red-walk' ? activeOpponent.name : beat.stage === 'blue-walk' ? playerProfile.name : beat.stage === 'introductions' ? `${playerProfile.name}  VS  ${activeOpponent.name}` : beat.title;
+  el('walkout-detail').textContent = beat.detail.replaceAll('Volk', activeOpponent.name).replaceAll('Tyler', playerProfile.name);
   el('walkout-progress-fill').style.width = `${Math.min(100, walkoutElapsed / WALKOUT_DURATION * 100)}%`;
   if (beat.stage !== walkoutStage) { walkoutStage = beat.stage; audio.walkoutCue(beat.stage, beat.corner); }
 }
@@ -143,10 +169,13 @@ function finishWalkout() {
   audio.stopWalkout(); walkoutElapsed = null; walkoutStage = null; app.classList.remove('walkout-active'); el('walkout').hidden = true; el('fight-controls').hidden = false;
   game.start(); accumulator = 0; keyboard.clear();
 }
-function toMenu() { active = false; coach = null; walkoutElapsed = null; walkoutStage = null; game = new Combat(); keyboard.clear(); closeModal(); el('menu').hidden = false; el('arena-caption').hidden = false; el('hud').hidden = true; el('walkout').hidden = true; el('fight-controls').hidden = true; el('training-coach').hidden = true; el('footer').hidden = false; el('ground-context').hidden = true; el('fight-message').textContent = ''; el('arena').classList.add('menu-view'); app.classList.remove('in-fight', 'walkout-active'); }
+function toMenu() { active = false; coach = null; walkoutElapsed = null; walkoutStage = null; game = new Combat(); keyboard.clear(); closeModal(); el('menu').hidden = false; el('arena-caption').hidden = false; el('hud').hidden = true; el('walkout').hidden = true; el('fight-controls').hidden = true; el('training-coach').hidden = true; el('footer').hidden = false; el('ground-context').hidden = true; el('fight-message').textContent = ''; el('arena').classList.add('menu-view'); app.classList.remove('in-fight', 'walkout-active'); previewFighters(); }
 el('start').onclick = start; el('help-button').onclick = showHelp; el('controls-link').onclick = showHelp; el('pause-button').onclick = togglePause;
 el('skip-walkout').onclick = finishWalkout;
 el('mode-training').onclick = () => setMode('training'); el('mode-fight').onclick = () => setMode('fight'); el('leave-training').onclick = toMenu;
+document.querySelectorAll<HTMLButtonElement>('[data-player-fighter]').forEach(button => button.onclick = () => setPlayer(button.dataset.playerFighter!));
+document.querySelectorAll<HTMLButtonElement>('[data-opponent-fighter]').forEach(button => button.onclick = () => setOpponent(button.dataset.opponentFighter!));
+el('opponent-random').onclick = () => setOpponent('random');
 document.querySelectorAll<HTMLButtonElement>('[data-lesson]').forEach(button => button.onclick = () => selectLesson(button.dataset.lesson!));
 el('difficulty-down').onclick = () => setLevel(level - 1); el('difficulty-up').onclick = () => setLevel(level + 1); el('difficulty').onchange = () => setLevel(Number(el<HTMLSelectElement>('difficulty').value));
 el('arena-down').onclick = () => setArena(arenaIndex - 1); el('arena-up').onclick = () => setArena(arenaIndex + 1); document.querySelectorAll<HTMLButtonElement>('[data-arena]').forEach(node => node.onclick = () => setArena(Number(node.dataset.arena)));
@@ -168,7 +197,7 @@ function updateHUD() {
       const node = document.querySelector<HTMLElement>(`[data-ground-direction="${option.direction}"]`)!;
       node.hidden = false; node.querySelector('span')!.textContent = option.label.toUpperCase();
     }
-    el('position-help').textContent = g.mode === 'submission' ? g.top === 0 ? 'ARMBAR · U HALTEN' : 'ARMBAR · LEERTASTE HALTEN ZUM BEFREIEN' : g.transition ? `${POSITION_LABELS[g.transition.from ?? g.position].toUpperCase()}  →  ${POSITION_LABELS[g.transition.to ?? g.position].toUpperCase()}${g.transition.defended ? ' · ABGEWEHRT' : ''}` : g.mode === 'ground' ? 'WASD EINZELN DRÜCKEN  /  SPACE VERTEIDIGEN  /  R AUFSTEHEN' : 'G KONTROLLE  /  SHIFT + G TAKEDOWN  /  R LÖSEN';
+    el('position-help').textContent = g.mode === 'submission' ? g.top === 0 ? 'ARMBAR · U HALTEN' : 'ARMBAR · LEERTASTE HALTEN ZUM BEFREIEN' : g.mode === 'standup' ? 'AUFSTEHEN' : g.transition ? `${POSITION_LABELS[g.transition.from ?? g.position].toUpperCase()}  →  ${POSITION_LABELS[g.transition.to ?? g.position].toUpperCase()}${g.transition.defended ? ' · ABGEWEHRT' : ''}` : g.mode === 'ground' ? 'WASD EINZELN DRÜCKEN  /  SPACE VERTEIDIGEN  /  R AUFSTEHEN' : 'G KONTROLLE  /  SHIFT + G TAKEDOWN  /  R LÖSEN';
     el('submission-track').hidden = g.mode !== 'submission'; el('submission-track').querySelector<HTMLElement>('i')!.style.width = `${g.progress * 100}%`;
   }
   if (view.debug) el('debug').textContent = `${Math.round(view.fps)} FPS | ${view.renderer.info.render.calls} draws | ${(view.renderer.info.render.triangles / 1000).toFixed(1)}k triangles\nKI ${level}: ${ai.decision}\n${game.fighters.map(f => `${f.name}: ${f.state}\n Kopf ${f.damage.head.toFixed(1)} | Körper ${f.damage.body.toFixed(1)} | Bein ${f.damage.leg.toFixed(1)}\n Balance ${f.damage.balance.toFixed(1)} | Ausdauer ${f.damage.stamina.toFixed(1)}`).join('\n')}\n${game.grapple ? JSON.stringify(game.grapple) : 'Standkampf'}`;
@@ -213,7 +242,7 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 async function init() {
-  setLevel(3); setArena(0); selectLesson(lessonId); setMode('training');
+  setLevel(3); setArena(0); selectLesson(lessonId); setMode('training'); setPlayer(playerProfile.id); setOpponent(opponentChoice);
   try { view = new ArenaView(el('arena')); await view.init(); view.setArena(arenaIndex); el<HTMLButtonElement>('start').disabled = false; el('start-label').textContent = 'TRAINING STARTEN'; requestAnimationFrame(frame); }
   catch (error) { el('load-error').hidden = false; el('load-error').textContent = `Die 3D-Ansicht konnte nicht starten. Bitte WebGL in Chrome oder Edge aktivieren und neu laden. ${error instanceof Error ? error.message : ''}`; el('start-label').textContent = '3D-START FEHLGESCHLAGEN'; console.error(error); }
 }

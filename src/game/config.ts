@@ -1,6 +1,6 @@
 import type { AnatomicalTarget, DifficultyProfile, FighterStats, MatchRules, Technique, TechniqueKind, Zone } from './types';
 export const RULES: MatchRules = { rounds: 3, roundSeconds: 180, breakSeconds: 6, cageApothem: 4.65 };
-export const STATS: FighterStats = { maxStamina: 100, power: 1, speed: 1, resilience: 1, grappling: 1 };
+export const STATS: FighterStats = { maxStamina: 100, power: 1, speed: 1, resilience: 1, grappling: 1, striking: 1 };
 export const DIFFICULTIES: DifficultyProfile[] = [
   { level: 1, name: 'Einsteiger', subtitle: 'Lerne Abstand und Timing.', reaction: .72, accuracy: .2, combo: 1, spacing: .4, reserve: 12, grappling: .16, aggression: .48 },
   { level: 2, name: 'Amateur', subtitle: 'Erste Kombinationen. Echte Gegenwehr.', reaction: .48, accuracy: .38, combo: 2, spacing: .58, reserve: 20, grappling: .3, aggression: .58 },

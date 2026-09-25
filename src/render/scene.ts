@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Combat, clamp, strikeTip } from '../game/combat';
 import type { CombatEvent } from '../game/types';
 import { FighterRig } from './fighter';
+import type { FighterProfile } from '../game/fighters';
 import { ImpactPhysics } from './physics';
 import { batchRigidParts } from './batch';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -21,6 +22,8 @@ export class ArenaView {
   private walkoutStaff = new THREE.Group(); private announcer: THREE.Group; private referee: THREE.Group;
   private walkoutCameraStage = '';
   private environment!: ArenaEnvironment;
+  private floorMaterial!: THREE.MeshStandardMaterial;
+  private matMaterial!: THREE.MeshStandardMaterial;
   fps = 60; quality = 'high';
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -55,10 +58,18 @@ export class ArenaView {
     new ResizeObserver(resize).observe(container); resize();
   }
   async init() { await this.physics.init(); }
+  setFighters(profiles: readonly [FighterProfile, FighterProfile]) {
+    this.rigs.forEach(rig => { rig.root.removeFromParent(); rig.dispose(); });
+    this.rigs = [new FighterRig(0, profiles[0]), new FighterRig(1, profiles[1])];
+    this.rigs.forEach(rig => this.scene.add(rig.root));
+    this.environment.setMatchup(profiles[0].name, profiles[1].name);
+  }
   setQuality(quality: string) { this.quality = quality; this.renderer.setPixelRatio(Math.min(devicePixelRatio, quality === 'high' ? 1.75 : .8)); this.renderer.shadowMap.enabled = quality === 'high'; }
   setArena(index: number) {
     const theme = ARENAS[Math.max(0, Math.min(ARENAS.length - 1, index))];
     this.environment.setArena(index);
+    this.floorMaterial.color.set(theme.id === 'neon-district' ? '#101222' : theme.id === 'alpine-crown' ? '#17252a' : theme.id === 'imperial-dome' ? '#201915' : theme.id === 'harbor-forge' ? '#182124' : '#111a15');
+    this.matMaterial.color.set(theme.id === 'neon-district' ? '#e2dce5' : theme.id === 'alpine-crown' ? '#e4ecf0' : theme.id === 'imperial-dome' ? '#eee5d4' : '#ffffff');
     this.light.color.set(theme.id === 'neon-district' ? '#ffd9f8' : theme.id === 'alpine-crown' ? '#e4f8ff' : theme.id === 'imperial-dome' ? '#ffe1ae' : '#fff0e2');
     this.renderer.toneMappingExposure = theme.id === 'imperial-dome' ? 1.08 : theme.id === 'neon-district' ? .92 : 1;
   }
@@ -83,8 +94,8 @@ export class ArenaView {
       c.fillStyle = '#b0b6b8'; c.fillRect(0, 0, 2048, 2048);
       let seed = 9; for (let i = 0; i < 45000; i++) { seed = (seed * 1664525 + 1013904223) >>> 0; const x = seed % 2048; seed = (seed * 1664525 + 1013904223) >>> 0; c.fillStyle = i % 2 ? '#ffffff06' : '#00000009'; c.fillRect(x, seed % 2048, 2, 2); }
       c.strokeStyle = '#677665'; c.lineWidth = 7; c.beginPath(); for (let i = 0; i <= 8; i++) { const a = Math.PI / 8 + i * Math.PI / 4; const x = 1024 + Math.cos(a) * 825, y = 1024 + Math.sin(a) * 825; i ? c.lineTo(x, y) : c.moveTo(x, y); } c.stroke();
-      c.save(); c.translate(1024, 1050); c.rotate(-Math.PI / 2); c.textAlign = 'center'; c.fillStyle = '#344a3d'; c.font = 'italic 900 350px Arial'; c.fillText('TUC', 0, 50); c.font = 'bold 29px Arial'; c.fillText('TYLER’S ULTIMATE CHAMPIONSHIP', 0, 115); c.fillStyle = '#738573'; c.font = 'bold 28px Arial'; c.fillText('THE PROVING GROUND', 0, 180); c.restore();
-      c.textAlign = 'center'; c.fillStyle = '#41594c'; c.font = 'bold 46px Arial'; c.fillText('EARN YOUR PLACE.', 1024, 380); c.fillText('T U C  /  0 0 1', 1024, 1710);
+      c.save(); c.translate(1024, 1050); c.rotate(-Math.PI / 2); c.textAlign = 'center'; c.fillStyle = '#344a3d'; c.font = 'italic 900 350px Arial'; c.fillText('TUC', 0, 50); c.font = 'bold 29px Arial'; c.fillText('TYLER’S ULTIMATE CHAMPIONSHIP', 0, 115); c.fillStyle = '#738573'; c.font = 'bold 28px Arial'; c.fillText('WORLD FIGHT NIGHT', 0, 180); c.restore();
+      c.textAlign = 'center'; c.fillStyle = '#41594c'; c.font = 'bold 46px Arial'; c.fillText('EARN YOUR PLACE.', 1024, 380); c.fillText('T U C  /  W O R L D  T O U R', 1024, 1710);
       c.fillStyle = '#3c6a94'; c.fillRect(220, 900, 22, 240); c.fillStyle = '#a04848'; c.fillRect(1810, 900, 22, 240);
       c.strokeStyle = '#30374010'; c.lineWidth = 1;
       for (let y = 120; y < 2048; y += 256) { c.beginPath(); c.moveTo(0, y); c.lineTo(2048, y); c.stroke(); }
@@ -97,8 +108,10 @@ export class ArenaView {
     });
     matTexture.anisotropy = 8;
     const weave = surfaceTexture('canvas'); weave.anisotropy = 8;
-    const mat = new THREE.Mesh(new THREE.CircleGeometry(5.03, 8), new THREE.MeshStandardMaterial({ map: matTexture, roughness: .86, bumpMap: weave, bumpScale: .002 })); mat.rotation.x = -Math.PI / 2; mat.rotation.z = Math.PI / 8; mat.position.y = -.015; mat.receiveShadow = true; this.scene.add(mat);
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshStandardMaterial({ color: '#111a15', roughness: .92 })); floor.rotation.x = -Math.PI / 2; floor.position.y = -.39; floor.receiveShadow = true; this.scene.add(floor);
+    this.matMaterial = new THREE.MeshStandardMaterial({ map: matTexture, roughness: .86, bumpMap: weave, bumpScale: .002 });
+    const mat = new THREE.Mesh(new THREE.CircleGeometry(5.03, 8), this.matMaterial); mat.rotation.x = -Math.PI / 2; mat.rotation.z = Math.PI / 8; mat.position.y = -.015; mat.receiveShadow = true; this.scene.add(mat);
+    this.floorMaterial = new THREE.MeshStandardMaterial({ color: '#111a15', roughness: .92 });
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), this.floorMaterial); floor.rotation.x = -Math.PI / 2; floor.position.y = -.39; floor.receiveShadow = true; this.scene.add(floor);
     const fenceTex = canvasTexture(64, 64, c => { c.clearRect(0, 0, 64, 64); c.strokeStyle = '#5f6b60'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, 32); c.lineTo(32, 0); c.lineTo(64, 32); c.lineTo(32, 64); c.closePath(); c.stroke(); }); fenceTex.wrapS = fenceTex.wrapT = THREE.RepeatWrapping; fenceTex.repeat.set(19, 11);
     for (let i = 0; i < 8; i++) {
       const a = Math.PI / 8 + i * Math.PI / 4, b = a + Math.PI / 4;
@@ -121,8 +134,9 @@ export class ArenaView {
     for (let i = 0; i < count; i++) {
       const blood = event.zone === 'head' && event.strength > 10 && i === 0;
       const mesh = new THREE.Mesh(new THREE.SphereGeometry(blood ? .015 : .009, 4, 3), new THREE.MeshBasicMaterial({ color: blood ? '#8a3030' : '#e5f0e6', transparent: true, opacity: .75 }));
-      mesh.position.set(event.position.x, event.zone === 'head' ? 1.68 : event.zone === 'body' ? 1.2 : .55, event.position.z); this.scene.add(mesh);
-      this.particles.push({ mesh, velocity: new THREE.Vector3((Math.random() - .5) * 2, .8 + Math.random(), (Math.random() - .5) * 2), life: .35 });
+      const height = event.grounded ? event.zone === 'head' ? .32 : .23 : event.zone === 'head' ? 1.68 : event.zone === 'body' ? 1.2 : .55;
+      mesh.position.set(event.position.x, height, event.position.z); this.scene.add(mesh);
+      this.particles.push({ mesh, velocity: new THREE.Vector3((Math.random() - .5) * (event.grounded ? .8 : 2), (event.grounded ? .35 : .8) + Math.random() * (event.grounded ? .4 : 1), (Math.random() - .5) * (event.grounded ? .8 : 2)), life: .35 });
     }
   }
   draw(match: Combat, dt: number, menu: boolean, frozen = false, frameDt = dt, walkout: WalkoutPresentation | null = null) {
@@ -146,14 +160,14 @@ export class ArenaView {
     const grounded = !walkout && !!match.grapple && match.grapple.mode !== 'clinch';
     const middle = new THREE.Vector3((a.position.x + b.position.x) / 2, grounded ? .42 : 1.02, (a.position.z + b.position.z) / 2);
     const distance = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
-    const zoom = menu ? 17 : grounded ? clamp(4.15 + distance * .55, 4.65, 7.4) : clamp(4.45 + distance * .72, 5.2, 11.2);
-    const focus = middle.clone(); if (menu) focus.y = 3.2;
-    const targetFov = menu ? 39 : walkout ? 41 : grounded ? 36 : 37;
+    const zoom = menu ? 20.5 : grounded ? clamp(4.15 + distance * .55, 4.65, 7.4) : clamp(4.45 + distance * .72, 5.2, 11.2);
+    const focus = middle.clone(); if (menu) focus.y = 4.6;
+    const targetFov = menu ? 43 : walkout ? 41 : grounded ? 36 : 37;
     const fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 1 - Math.exp(-dt * 5));
     if (Math.abs(fov - this.camera.fov) > .001) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     const desired = new THREE.Vector3(
-      middle.x * .78 + (menu ? 5.1 : .18),
-      menu ? 9.3 : grounded ? 2.22 + distance * .08 : 2.45 + distance * .1,
+      middle.x * .78 + (menu ? 5.9 : .18),
+      menu ? 11.8 : grounded ? 2.22 + distance * .08 : 2.45 + distance * .1,
       middle.z * .78 + zoom,
     );
     let cameraCut = false;

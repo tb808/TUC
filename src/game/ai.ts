@@ -35,13 +35,14 @@ export class OpponentAI {
         this.decision = 'Bodenkontrolle';
       } else { input.guard = this.random() < p.accuracy ? 'high' : null; input.action = this.random() < p.grappling + .15 ? (g.position === 'guard' && this.random() < .4 ? 'stand' : 'grapple') : undefined; input.direction = 'reverse'; this.decision = 'Position befreien'; }
     } else {
-      const desired = self.damage.stamina < p.reserve ? 2.2 : this.random() < .3 ? 1.43 : .97;
+      const grappleBias = self.stats.grappling / self.stats.striking;
+      const desired = self.damage.stamina < p.reserve ? 2.2 : this.random() < .3 ? 1.43 : grappleBias > 1.15 ? .82 : .97;
       const approach = d > desired + .14 ? 1 : d < desired - .16 ? -p.spacing : 0;
       const strafe = Math.sin(match.elapsed * .8) * .28 * p.spacing;
       input.move = { x: dx * approach - dz * strafe, z: dz * approach + dx * strafe };
       if (self.damage.stamina < p.reserve) { input.guard ??= 'high'; this.combo = 0; this.decision = 'Ausdauer verwalten'; }
       else if (!input.guard && d < 1.75 && this.random() < p.aggression) {
-        if (d < 1.4 && this.random() < p.grappling * .13) { input.action = this.random() < .65 ? 'takedown' : 'grapple'; this.decision = 'Grappling suchen'; }
+        if (d < 1.4 && this.random() < p.grappling * .13 * grappleBias) { input.action = this.random() < .65 ? 'takedown' : 'grapple'; this.decision = 'Grappling suchen'; }
         else {
           const hand = this.hand++ % 2, roll = this.random();
           const zone = rival.guard === 'high' && this.random() < p.accuracy ? 'body' : 'head';

@@ -17,8 +17,8 @@ describe('training mode', () => {
     const moving = { ...EMPTY_CONTROLS(), move: { x: 1, z: 0 } };
     expect(coach.observe(moving, game, [], .7)).toBe(true);
     expect(coach.current?.title).toBe('Lande einen Jab');
-    expect(coach.observe(EMPTY_CONTROLS(), game, [{ type: 'hit', attacker: 0, target: 1, technique: 'kick-0-leg', zone: 'leg', strength: 5, blocked: false, position: { x: 0, z: 0 } }], .1)).toBe(false);
-    expect(coach.observe(EMPTY_CONTROLS(), game, [{ type: 'hit', attacker: 0, target: 1, technique: 'punch-0-head', zone: 'head', strength: 5, blocked: false, position: { x: 0, z: 0 } }], .1)).toBe(true);
+    expect(coach.observe(EMPTY_CONTROLS(), game, [{ type: 'hit', attacker: 0, target: 1, technique: 'kick-0-leg', zone: 'leg', strength: 5, blocked: false, grounded: false, position: { x: 0, z: 0 } }], .1)).toBe(false);
+    expect(coach.observe(EMPTY_CONTROLS(), game, [{ type: 'hit', attacker: 0, target: 1, technique: 'punch-0-head', zone: 'head', strength: 5, blocked: false, grounded: false, position: { x: 0, z: 0 } }], .1)).toBe(true);
   });
 
   it('keeps the passive dummy available instead of ending by damage', () => {

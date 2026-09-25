@@ -7,7 +7,7 @@ export type DefenseMove = 'parry' | 'check' | 'slipLeft' | 'slipRight' | 'pull' 
 export type CombatState = 'idle' | 'moving' | 'guarding' | 'attacking' | 'stunned' | 'knockedDown' | 'clinch' | 'takedown' | 'ground' | 'submission' | 'finished';
 export type GroundPosition = 'guard' | 'halfGuard' | 'sideControl' | 'mount';
 export type GroundDirection = 'advance' | 'reverse' | 'left' | 'right';
-export interface FighterStats { maxStamina: number; power: number; speed: number; resilience: number; grappling: number }
+export interface FighterStats { maxStamina: number; power: number; speed: number; resilience: number; grappling: number; striking: number }
 export interface DamageState { head: number; body: number; leg: number; balance: number; stamina: number }
 export type TechniqueKind = 'punch' | 'hook' | 'uppercut' | 'elbow' | 'kick' | 'frontKick' | 'sideKick' | 'knee' | 'groundPunch' | 'clinchPunch';
 export interface Technique { id: string; label: string; kind: TechniqueKind; hand: number; zone: Zone; target: AnatomicalTarget; windup: number; active: number; recovery: number; reach: number; radius: number; damage: number; cost: number; impulse: number; comboAt: number }
@@ -19,7 +19,7 @@ export interface MatchRules { rounds: number; roundSeconds: number; breakSeconds
 export interface RoundScore { damage: [number, number]; grappling: [number, number]; control: [number, number]; knockdowns: [number, number] }
 export interface Scorecard { round: number; points: [number, number]; scores: RoundScore }
 export interface GroundTransition { by: FighterId; direction: GroundDirection; elapsed: number; duration?: number; from?: GroundPosition; to?: GroundPosition; targetSide?: -1 | 1; flips?: boolean; resolved?: boolean; defended?: boolean }
-export interface Grapple { mode: 'clinch' | 'takedown' | 'ground' | 'submission'; top: FighterId; position: GroundPosition; timer: number; progress: number; side?: -1 | 1; transition: GroundTransition | null }
+export interface Grapple { mode: 'clinch' | 'takedown' | 'ground' | 'submission' | 'standup'; top: FighterId; position: GroundPosition; timer: number; progress: number; side?: -1 | 1; transition: GroundTransition | null }
 export interface MatchResult { winner: FighterId | null; method: 'KO' | 'TKO' | 'Submission' | 'Entscheidung' | 'Unentschieden'; detail: string }
-export type CombatEvent = { type: 'hit'; attacker: FighterId; target: FighterId; technique: string; zone: Zone; strength: number; blocked: boolean; defense?: 'guard' | 'parry' | 'check' | 'catch'; position: Vec2 } | { type: 'message'; text: string } | { type: 'bell' } | { type: 'end'; result: MatchResult };
+export type CombatEvent = { type: 'hit'; attacker: FighterId; target: FighterId; technique: string; zone: Zone; strength: number; blocked: boolean; grounded: boolean; defense?: 'guard' | 'parry' | 'check' | 'catch'; position: Vec2 } | { type: 'message'; text: string } | { type: 'bell' } | { type: 'end'; result: MatchResult };
 export const EMPTY_CONTROLS = (): Controls => ({ move: { x: 0, z: 0 }, guard: null });
