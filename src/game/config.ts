@@ -1,6 +1,6 @@
 import type { AnatomicalTarget, DifficultyProfile, FighterStats, MatchRules, Technique, TechniqueKind, Zone } from './types';
 export const RULES: MatchRules = { rounds: 3, roundSeconds: 180, breakSeconds: 6, cageApothem: 4.65 };
-export const STATS: FighterStats = { maxStamina: 100, power: 1, speed: 1, resilience: 1, grappling: 1, striking: 1 };
+export const STATS: FighterStats = { maxStamina: 100, power: 1, speed: 1, resilience: 1, grappling: 1, striking: 1, reach: 1, height: 1.8, weight: 84, recovery: 1, wrestling: 1, submission: 1 };
 export const DIFFICULTIES: DifficultyProfile[] = [
   { level: 1, name: 'Einsteiger', subtitle: 'Lerne Abstand und Timing.', reaction: .72, accuracy: .2, combo: 1, spacing: .4, reserve: 12, grappling: .16, aggression: .48 },
   { level: 2, name: 'Amateur', subtitle: 'Erste Kombinationen. Echte Gegenwehr.', reaction: .48, accuracy: .38, combo: 2, spacing: .58, reserve: 20, grappling: .3, aggression: .58 },
@@ -35,5 +35,8 @@ for (const hand of [0, 1]) {
     const id = `${kind}-${hand}`;
     add(id, kind === 'groundPunch' ? 'Ground & Pound' : 'Kurzer Schlag', kind, hand, 'head', 'temple', .2, .1, .35, 1.4, .2, kind === 'groundPunch' ? 7 : 5, 9, .14, .3);
   }
+  for (const style of ['punch', 'hook', 'hammer']) for (const zone of ['head', 'body'] as Zone[]) {
+    add(`ground-${style}-${hand}-${zone}`, style === 'hammer' ? 'Hammerfist' : style === 'hook' ? 'Ground Hook' : zone === 'body' ? 'Ground Body Shot' : 'Short Punch', 'groundPunch', hand, zone, zone === 'body' ? 'ribs' : style === 'hook' ? 'temple' : 'chin', style === 'hammer' ? .28 : .19, .11, style === 'hammer' ? .4 : .3, .65, .15, style === 'hammer' ? 10 : style === 'hook' ? 8 : 7, style === 'hammer' ? 12 : 8, .12, .19);
+  }
 }
-export const POSITION_LABELS = { guard: 'Guard', halfGuard: 'Half Guard', sideControl: 'Side Control', mount: 'Mount' };
+export { POSITION_LABELS } from './ground';

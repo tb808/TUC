@@ -100,9 +100,9 @@ export class ArenaEnvironment {
 
   constructor(private scene: THREE.Scene) {
     this.root.name = 'arena-environment'; this.venue.name = 'venue-details'; this.root.add(this.venue); this.scene.add(this.root);
-    const clothing = new THREE.MeshStandardMaterial({ roughness: .88, metalness: .02, side: THREE.DoubleSide });
-    const skin = new THREE.MeshStandardMaterial({ roughness: .93 });
-    const hair = new THREE.MeshStandardMaterial({ roughness: .91 });
+    const clothing = new THREE.MeshStandardMaterial({ color: '#555c68', roughness: .88, metalness: .02 });
+    const skin = new THREE.MeshStandardMaterial({ color: '#68717f', roughness: .93 });
+    const hair = new THREE.MeshStandardMaterial({ color: '#727986', roughness: .91 });
     this.bodies = new THREE.InstancedMesh(new THREE.CylinderGeometry(.18, .13, .43, 10), clothing, 240);
     this.heads = new THREE.InstancedMesh(new THREE.SphereGeometry(.105, 12, 8), skin, 240);
     this.arms = new THREE.InstancedMesh(new THREE.CapsuleGeometry(.047, .29, 3, 6), clothing, 480);
@@ -114,7 +114,11 @@ export class ArenaEnvironment {
     this.distantArms = new THREE.InstancedMesh(new THREE.CylinderGeometry(.034, .03, .27, 4), clothing, 5000);
     for (const mesh of [this.bodies, this.heads, this.arms, this.hair, this.legs, this.distantBodies, this.distantHeads, this.distantHair, this.distantArms]) mesh.frustumCulled = false;
     this.root.add(this.bodies, this.heads, this.arms, this.hair, this.legs, this.distantBodies, this.distantHeads, this.distantHair, this.distantArms);
-    this.buildGrandstand(); this.setArena(0); this.update(0, true);
+    this.buildGrandstand();
+    // Aisles leave slots unused. Drawing the allocation renders identity instances at cage centre.
+    this.bodies.count = this.heads.count = this.hair.count = this.spectators.length;
+    this.arms.count = this.legs.count = this.spectators.length * 2;
+    this.setArena(0); this.update(0, true);
   }
 
   setArena(index: number) {

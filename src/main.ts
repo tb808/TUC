@@ -1,4 +1,5 @@
 import './style.css';
+import { broadcastHUD, groundActions, FightUI } from './game/ui';
 import { Combat, groundMoveOptions } from './game/combat';
 import { DIFFICULTIES, POSITION_LABELS } from './game/config';
 import { OpponentAI, seededRandom } from './game/ai';
@@ -48,10 +49,9 @@ app.innerHTML = `
   </main>
   <div id="arena-caption"><span class="caption-line"></span><div><strong>THE PROVING GROUND</strong><p>Ein Oktagon. Keine Ausreden.</p></div><span class="arena-code">TUC—001<br>TRAINING FACILITY</span></div>
   <section id="hud" hidden aria-label="Kampfstatus">
-    <div class="fighter-hud blue"><div><small>BLAUE ECKE</small><strong id="player-name">TYLER</strong></div><div class="stamina-track"><i id="player-stamina"></i></div><span id="player-state">BEREIT</span></div>
-    <div class="round-hud"><span id="round">RUNDE 1 / 3</span><strong id="timer">3:00</strong><small id="fight-level">PROFI</small></div>
-    <div class="fighter-hud red"><div><small id="opponent-corner">ROTE ECKE</small><strong id="opponent-name">ALEX VOLK</strong></div><div class="stamina-track"><i id="opponent-stamina"></i></div><span id="opponent-state">BEREIT</span></div>
+    ${broadcastHUD}
   </section>
+  ${groundActions}
   <section id="walkout" hidden aria-live="polite">
     <div class="walkout-live"><i></i> LIVE · FIGHT NIGHT</div>
     <div class="walkout-card"><small id="walkout-kicker"></small><strong id="walkout-title"></strong><p id="walkout-detail"></p><div class="walkout-progress"><i id="walkout-progress-fill"></i></div></div>
@@ -73,13 +73,14 @@ let messageTime = 0, last = performance.now(), accumulator = 0, hitStop = 0, ren
 let walkoutElapsed: number | null = null, walkoutStage: WalkoutStage | null = null;
 let observedAction: string | null = null, observedActionSerial = 0;
 const audio = new FightAudio();
+const fightUI = new FightUI();
 const controlsHTML = `<div class="control-grid"><div><kbd>W A S D · Q</kbd><strong>Bewegen / Auslage</strong><span>Q wechselt orthodox / Southpaw</span></div><div><kbd>J / K</kbd><strong>Jab / Cross</strong><span>Shift: Haken · Strg: Körper · Alt: Uppercut</span></div><div><kbd>ALT + SHIFT + J / K</kbd><strong>Ellbogen</strong><span>Kurze Distanz; Strg wählt den Körper</span></div><div><kbd>U / I</kbd><strong>Round-Kicks</strong><span>Strg: Körper · Shift: Kopf</span></div><div><kbd>ALT + U / I</kbd><strong>Front-Kick / Knie</strong><span>Strg + Alt: Körperknie · Shift + Alt: Kopfknie</span></div><div><kbd>STRG + SHIFT + U / I</kbd><strong>Side-Kick</strong><span>Gerader harter Kick zum Körper</span></div><div><kbd>LEERTASTE</kbd><strong>Deckung / Timing</strong><span>Antippen: Parade · Strg antippen: Check / Kick-Catch</span></div><div><kbd>SPACE + A / D / S</kbd><strong>Slip / Pull</strong><span>Kopfbewegung öffnet ein Konterfenster</span></div><div><kbd>G / SHIFT + G</kbd><strong>Clinch / Takedown</strong><span>R: lösen oder aufstehen</span></div><div><kbd>W A S D</kbd><strong>Bodenposition wechseln</strong><span>Einzeln drücken; das Boden-Menü zeigt jedes Ziel</span></div><div><kbd>J / K · U</kbd><strong>Ground & Pound / Armbar</strong><span>Armbar aus Mount · U halten zum Angriff</span></div><div><kbd>LEERTASTE · ESC</kbd><strong>Verteidigen / Pause</strong><span>Am Boden: Übergang / Armbar abwehren</span></div></div><p class="help-note">Distanz und Standfestigkeit bestimmen die Wirkung. Paraden, Slips, Pulls und gefangene Kicks öffnen kurze Konterfenster. Am Boden reicht ein einzelner Druck auf W, A, S oder D. F3 öffnet die Diagnoseansicht.</p>`;
 function openModal(title: string, body: string, type: string) {
   returnFocus = document.activeElement as HTMLElement; modalType = type; keyboard.clear();
   el('modal-card').innerHTML = `<div class="eyebrow">TYLER’S ULTIMATE CHAMPIONSHIP</div><h2 id="modal-title">${title}</h2>${body}`;
   el('modal').hidden = false; el('modal-card').querySelector<HTMLButtonElement>('button')?.focus();
 }
-function closeModal() { el('modal').hidden = true; modalType = ''; keyboard.clear(); returnFocus?.focus(); returnFocus?.blur(); }
+function closeModal() { el('modal').hidden = true; modalType = ''; keyboard.clear(); if (active && view) view.renderer.domElement.focus({ preventScroll: true }); else returnFocus?.focus(); }
 function showHelp() { if (active && game.phase !== 'finished') game.paused = true; openModal('DEIN MOVE.', controlsHTML + '<button class="primary" id="close-help">VERSTANDEN <span>→</span></button>', 'help'); el('close-help').onclick = () => { closeModal(); if (active) game.paused = false; }; }
 function togglePause() {
   if (!active || game.phase === 'finished') { if (modalType === 'help') closeModal(); return; }
@@ -147,6 +148,7 @@ function updateCoach(completedStep = false) {
 function start() {
   void audio.start().catch(() => { el('sound-toggle').textContent = 'TON NICHT VERFÜGBAR'; });
   const training = mode === 'training';
+  fightUI.reset();
   activeOpponent = training ? FIGHTERS[1] : opponentChoice === 'random' ? randomOpponent(playerProfile.id) : fighterProfile(opponentChoice);
   game = new Combat(training ? { rounds: 1, roundSeconds: 86400 } : {}, training, [playerProfile, activeOpponent]); ai = new OpponentAI(level); coach = training ? new TrainingCoach(TRAINING_LESSONS.find(lesson => lesson.id === lessonId) ?? TRAINING_LESSONS[0]) : null; active = true; closeModal(); keyboard.clear(); view.setFighters([playerProfile, activeOpponent]);
   el('menu').hidden = true; el('arena-caption').hidden = true; el('hud').hidden = false; el('fight-controls').hidden = !training; el('footer').hidden = true; el('arena').classList.remove('menu-view'); app.classList.add('in-fight');
@@ -167,7 +169,7 @@ function updateWalkout() {
 function finishWalkout() {
   if (walkoutElapsed === null) return;
   audio.stopWalkout(); walkoutElapsed = null; walkoutStage = null; app.classList.remove('walkout-active'); el('walkout').hidden = true; el('fight-controls').hidden = false;
-  game.start(); accumulator = 0; keyboard.clear();
+  game.start(); accumulator = 0; keyboard.clear(); view.renderer.domElement.focus({ preventScroll: true });
 }
 function toMenu() { active = false; coach = null; walkoutElapsed = null; walkoutStage = null; game = new Combat(); keyboard.clear(); closeModal(); el('menu').hidden = false; el('arena-caption').hidden = false; el('hud').hidden = true; el('walkout').hidden = true; el('fight-controls').hidden = true; el('training-coach').hidden = true; el('footer').hidden = false; el('ground-context').hidden = true; el('fight-message').textContent = ''; el('arena').classList.add('menu-view'); app.classList.remove('in-fight', 'walkout-active'); previewFighters(); }
 el('start').onclick = start; el('help-button').onclick = showHelp; el('controls-link').onclick = showHelp; el('pause-button').onclick = togglePause;
@@ -185,9 +187,11 @@ window.addEventListener('blur', () => { if (active && !game.paused && game.phase
 document.addEventListener('visibilitychange', () => { if (document.hidden && active && !game.paused && game.phase !== 'finished') togglePause(); });
 el('modal').addEventListener('keydown', e => { if (e.key === 'Tab') { const buttons = Array.from(el('modal-card').querySelectorAll<HTMLElement>('button,select,a')); const first = buttons[0], last = buttons.at(-1); if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); } } if (e.key === 'Escape') { e.stopPropagation(); if (modalType === 'help') { closeModal(); game.paused = false; } else if (modalType === 'pause') togglePause(); } });
 function updateHUD() {
+  fightUI.update(game, game.paused ? 0 : .08, active && walkoutElapsed === null);
+  if (active && !game.paused && walkoutElapsed === null) audio.footsteps(view.rigs.map(rig => rig.footfalls));
   el('timer').textContent = coach ? `${Math.floor(game.elapsed / 60)}:${Math.floor(game.elapsed % 60).toString().padStart(2, '0')}` : game.phase === 'break' ? `0:${Math.ceil(game.breakRemaining).toString().padStart(2, '0')}` : `${Math.floor(Math.ceil(game.remaining) / 60)}:${(Math.ceil(game.remaining) % 60).toString().padStart(2, '0')}`;
   el('round').textContent = coach ? 'TRAINING' : game.phase === 'break' ? 'RUNDENPAUSE' : `RUNDE ${game.round} / ${game.rules.rounds}`;
-  game.fighters.forEach((f, i) => { el(i ? 'opponent-stamina' : 'player-stamina').style.transform = `scaleX(${f.damage.stamina / 100})`; const condition = f.state === 'knockedDown' ? 'NIEDERSCHLAG' : f.stun > 0 ? 'ERSCHÜTTERT' : f.counterWindow > 0 ? 'KONTERFENSTER' : f.damage.stamina < 25 ? 'ERSCHÖPFT' : f.damage.leg > 50 ? 'BEIN ANGESCHLAGEN' : 'AUSDAUER'; el(i ? 'opponent-state' : 'player-state').textContent = `${condition} · ${f.stance === 'orthodox' ? 'ORTHODOX' : 'SOUTHPAW'}`; });
+  game.fighters.forEach((f, i) => { el(i ? 'opponent-stamina' : 'player-stamina').style.transform = `scaleX(${f.damage.stamina / 100})`; const condition = f.state === 'knockedDown' ? 'NIEDERSCHLAG' : f.hurt === 'rocked' ? 'ROCKED' : f.hurt === 'hurt' ? 'HURT' : f.stun > 0 ? 'ERSCHÜTTERT' : f.counterWindow > 0 ? 'KONTERFENSTER' : f.damage.stamina < 25 ? 'ERSCHÖPFT' : f.damage.leg > 50 ? 'BEIN ANGESCHLAGEN' : 'AUSDAUER'; el(i ? 'opponent-state' : 'player-state').textContent = `${condition} · ${f.stance === 'orthodox' ? 'ORTHODOX' : 'SOUTHPAW'}`; });
   const g = game.grapple; el('ground-context').hidden = !g || game.phase === 'finished';
   if (g) {
     el('position-label').textContent = g.mode === 'clinch' ? 'CLINCH' : g.mode === 'takedown' ? 'TAKEDOWN' : `${POSITION_LABELS[g.position].toUpperCase()} · ${g.top === 0 ? 'DU BIST OBEN' : 'DU BIST UNTEN'}`;
@@ -197,14 +201,14 @@ function updateHUD() {
       const node = document.querySelector<HTMLElement>(`[data-ground-direction="${option.direction}"]`)!;
       node.hidden = false; node.querySelector('span')!.textContent = option.label.toUpperCase();
     }
-    el('position-help').textContent = g.mode === 'submission' ? g.top === 0 ? 'ARMBAR · U HALTEN' : 'ARMBAR · LEERTASTE HALTEN ZUM BEFREIEN' : g.mode === 'standup' ? 'AUFSTEHEN' : g.transition ? `${POSITION_LABELS[g.transition.from ?? g.position].toUpperCase()}  →  ${POSITION_LABELS[g.transition.to ?? g.position].toUpperCase()}${g.transition.defended ? ' · ABGEWEHRT' : ''}` : g.mode === 'ground' ? 'WASD EINZELN DRÜCKEN  /  SPACE VERTEIDIGEN  /  R AUFSTEHEN' : 'G KONTROLLE  /  SHIFT + G TAKEDOWN  /  R LÖSEN';
+    el('position-help').textContent = g.mode === 'submission' ? g.top === 0 ? `${g.submissionKind === 'choke' ? 'REAR NAKED CHOKE' : 'ARMBAR'} · U HALTEN` : 'SUBMISSION · SPACE HALTEN ZUM BEFREIEN' : g.mode === 'standup' ? 'AUFSTEHEN' : g.transition ? `${POSITION_LABELS[g.transition.from ?? g.position].toUpperCase()}  →  ${POSITION_LABELS[g.transition.to ?? g.position].toUpperCase()}${g.transition.defended ? ' · ABGEWEHRT' : ''}` : g.mode === 'ground' ? 'WASD EINZELN DRÜCKEN  /  SPACE VERTEIDIGEN  /  R AUFSTEHEN' : 'G KONTROLLE  /  SHIFT + G TAKEDOWN  /  R LÖSEN';
     el('submission-track').hidden = g.mode !== 'submission'; el('submission-track').querySelector<HTMLElement>('i')!.style.width = `${g.progress * 100}%`;
   }
   if (view.debug) el('debug').textContent = `${Math.round(view.fps)} FPS | ${view.renderer.info.render.calls} draws | ${(view.renderer.info.render.triangles / 1000).toFixed(1)}k triangles\nKI ${level}: ${ai.decision}\n${game.fighters.map(f => `${f.name}: ${f.state}\n Kopf ${f.damage.head.toFixed(1)} | Körper ${f.damage.body.toFixed(1)} | Bein ${f.damage.leg.toFixed(1)}\n Balance ${f.damage.balance.toFixed(1)} | Ausdauer ${f.damage.stamina.toFixed(1)}`).join('\n')}\n${game.grapple ? JSON.stringify(game.grapple) : 'Standkampf'}`;
 }
 function events() {
   for (const e of game.drainEvents()) {
-    if (e.type === 'hit') { view.impact(e); audio.hit(e.strength, e.blocked); if (!e.blocked && e.strength > 6) hitStop = Math.min(.055, e.strength * .003); }
+    if (e.type === 'hit') { view.impact(e); audio.hit(e.strength, e.blocked, e.zone, e.technique, e.grounded); fightUI.hit(e, game.elapsed); if (!e.blocked && e.strength >= 13) hitStop = Math.min(.032, (e.strength - 10) * .002); }
     if (e.type === 'bell') audio.bell();
     if (e.type === 'message') { el('fight-message').textContent = e.text; messageTime = 2.1; }
     if (e.type === 'end') {
@@ -243,7 +247,7 @@ function frame(now: number) {
 }
 async function init() {
   setLevel(3); setArena(0); selectLesson(lessonId); setMode('training'); setPlayer(playerProfile.id); setOpponent(opponentChoice);
-  try { view = new ArenaView(el('arena')); await view.init(); view.setArena(arenaIndex); el<HTMLButtonElement>('start').disabled = false; el('start-label').textContent = 'TRAINING STARTEN'; requestAnimationFrame(frame); }
+  try { view = new ArenaView(el('arena')); await view.init(); view.setArena(arenaIndex); el<HTMLSelectElement>('quality').value = view.quality; el<HTMLButtonElement>('start').disabled = false; el('start-label').textContent = 'TRAINING STARTEN'; requestAnimationFrame(frame); }
   catch (error) { el('load-error').hidden = false; el('load-error').textContent = `Die 3D-Ansicht konnte nicht starten. Bitte WebGL in Chrome oder Edge aktivieren und neu laden. ${error instanceof Error ? error.message : ''}`; el('start-label').textContent = '3D-START FEHLGESCHLAGEN'; console.error(error); }
 }
 // Development-only observability for automated real-browser integration tests.

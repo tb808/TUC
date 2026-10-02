@@ -30,8 +30,8 @@ export class OpponentAI {
       else if (self.damage.stamina < p.reserve) { input.guard = 'high'; this.decision = 'Erholen'; }
       else if (g.mode === 'clinch') { input.action = this.random() < p.grappling * .5 ? 'takedown' : this.random() < .15 ? 'stand' : `punch-${this.hand++ % 2}-head`; this.decision = 'Clinch-Angriff'; }
       else if (g.top === this.id) {
-        if (g.position === 'mount' && this.random() < p.grappling * .55) input.action = 'submission';
-        else input.action = this.random() < p.grappling * .55 ? 'grapple' : `punch-${this.hand++ % 2}-head`;
+        if (['mount', 'backControl'].includes(g.position) && this.random() < p.grappling * .55) input.action = 'submission';
+        else input.action = this.random() < p.grappling * .5 ? 'grapple' : this.random() < .12 ? 'posture' : `${this.random() < .2 ? 'hook' : 'punch'}-${this.hand++ % 2}-${rival.guard === 'high' && this.random() < p.accuracy ? 'body' : 'head'}`;
         this.decision = 'Bodenkontrolle';
       } else { input.guard = this.random() < p.accuracy ? 'high' : null; input.action = this.random() < p.grappling + .15 ? (g.position === 'guard' && this.random() < .4 ? 'stand' : 'grapple') : undefined; input.direction = 'reverse'; this.decision = 'Position befreien'; }
     } else {

@@ -26,10 +26,11 @@ function contour(parent: THREE.Object3D, material: THREE.Material, points: numbe
       if (z <= 0) continue;
       let sculpt = 0;
       for (const s of [-1, 1]) {
-        sculpt += .012 * bump(x, y, s * .105, .325, .105, .065);
-        for (let row = 0; row < 3; row++) sculpt += .0035 * bump(x, y, s * .045, .2 - row * .061, .034, .025);
+        sculpt += .021 * bump(x, y, s * .105, .325, .105, .065);
+        for (let row = 0; row < 3; row++) sculpt += .005 * bump(x, y, s * .045, .2 - row * .061, .034, .025);
         sculpt += .004 * bump(x, y, s * .11, .422, .09, .009);
       }
+      sculpt -= .004 * bump(x, y, 0, .3, .016, .13);
       vertices.setZ(i, z + sculpt * Math.min(1, z / .08));
     }
     geometry.computeVertexNormals();
@@ -44,11 +45,13 @@ export class FighterRig implements FighterVisual {
   private poses: THREE.Quaternion[] = []; private hipPosition = new THREE.Vector3(); private initialized = false;
   private feetPlanted = false; private stepSide = 0; private stepTime = 1;
   private footTargets = [new THREE.Vector3(), new THREE.Vector3()];
+  footfalls = 0;
   private stepFrom = new THREE.Vector3(); private stepTo = new THREE.Vector3();
   private previousRoot = new THREE.Vector3();
+  private tint = new THREE.Color('#ab665e');
   constructor(id: number, profile: FighterProfile = FIGHTERS[id]) {
     const look = profile.visual;
-    this.root.scale.set(look.build, .96 + look.build * .04, look.build);
+    this.root.scale.set(look.build, (profile.stats.height ?? 1.8) / 1.8, look.build);
     this.skin = skinMaterial(look.skin); this.skinBase = this.skin.color.clone();
     const shorts = fabricMaterial(look.shorts);
     const seam = new THREE.MeshStandardMaterial({ color: look.accent, roughness: .8 });
@@ -84,7 +87,7 @@ export class FighterRig implements FighterVisual {
     const whites = new THREE.MeshStandardMaterial({ color: '#b8b5a8', roughness: .42 });
     const iris = new THREE.MeshStandardMaterial({ color: profile.id === 'tyler' ? '#46636a' : '#433d2e', roughness: .26 });
     for (const s of [-1, 1]) {
-      shape(this.head, this.skin, [s * .105, .001, -.005], [.016, .031, .021]);
+      shape(this.head, this.skin, [s * .102, .001, -.005], [.012, .03, .017]);
       shape(this.head, this.skin, [s * .049, -.008, .074], [.039, .027, .019]);
       shape(this.head, whites, [s * .041, .027, .096], [.019, .008, .007]);
       shape(this.head, iris, [s * .041, .027, .102], [.006, .0065, .002]);
@@ -131,14 +134,15 @@ export class FighterRig implements FighterVisual {
     this.poses = bones.map(b => b.quaternion.clone());
   }
   dispose() {
-    const materials = new Set<THREE.Material>(), geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>(), geometries = new Set<THREE.BufferGeometry>(), textures = new Set<THREE.Texture>();
     this.root.traverse(object => {
       if (!(object instanceof THREE.Mesh)) return;
       geometries.add(object.geometry);
       for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
     });
     geometries.forEach(geometry => { if (geometry !== sphere) geometry.dispose(); });
-    materials.forEach(material => material.dispose());
+    materials.forEach(material => { const mapped = material as THREE.MeshPhysicalMaterial; for (const texture of [mapped.map, mapped.bumpMap, mapped.roughnessMap]) if (texture) textures.add(texture); material.dispose(); });
+    textures.forEach(texture => texture.dispose());
   }
   /** Optional GLB uses meters, +Z forward and bone names matching this rig. Keeps procedural fallback until validated. */
   async loadGLB(url: string) {
@@ -174,7 +178,7 @@ export class FighterRig implements FighterVisual {
       this.forearms.forEach(b => b.rotation.x = f.guard === 'high' ? -1.98 : -1.55);
     }
     if (f.defenseTime > 0) {
-      const amount = smooth(clamp(f.defenseTime / (f.defense === 'parry' ? .18 : f.defense === 'check' ? .3 : .28), 0, 1));
+      const amount = smooth(clamp(f.defenseTime / (f.defense === 'parry' ? .24 : f.defense === 'check' ? .4 : .28), 0, 1));
       if (f.defense === 'parry') { this.arms[lead].rotation.y += stanceSide * .48 * amount; this.forearms[lead].rotation.z -= stanceSide * .32 * amount; this.spine.rotation.y -= stanceSide * .18 * amount; }
       if (f.defense === 'slipLeft' || f.defense === 'slipRight') { const direction = f.defense === 'slipLeft' ? -1 : 1; this.spine.rotation.z += direction * .32 * amount; this.head.rotation.z -= direction * .17 * amount; this.hips.position.x += direction * .08 * amount; }
       if (f.defense === 'pull') { this.spine.rotation.x -= .31 * amount; this.head.rotation.x += .15 * amount; this.hips.position.z -= .11 * amount; }
@@ -184,12 +188,14 @@ export class FighterRig implements FighterVisual {
       const a = f.attack, t = a.technique, side = t.hand ? rear : lead, s = side ? -1 : 1;
       const { extension, preparation } = strikeMotion(a), weight = extension;
       const legStrike = ['kick', 'frontKick', 'sideKick', 'knee'].includes(t.kind);
+      const hipDrive = t.kind === 'hook' ? .5 : t.kind === 'punch' ? t.hand ? .32 : .14 : legStrike ? .65 : .28;
+      const shoulderDrive = t.kind === 'hook' ? .62 : t.kind === 'punch' ? t.hand ? .46 : .24 : .34;
       if (!grapple) {
         this.hips.position.z = extension * (legStrike ? .03 : t.hand ? .18 : .12) - preparation * .024;
         this.hips.position.x = s * (legStrike ? -.055 : .018) * extension;
-        this.hips.rotation.y += s * (preparation * .12 - extension * (t.kind === 'kick' || t.kind === 'sideKick' ? .65 : .23));
+        this.hips.rotation.y += s * (preparation * .12 - extension * hipDrive);
       }
-      this.spine.rotation.y += s * (preparation * .13 - extension * .34); this.head.rotation.y -= this.spine.rotation.y * .45;
+      this.spine.rotation.y += s * (preparation * .13 - extension * shoulderDrive); this.head.rotation.y -= this.spine.rotation.y * .45;
       if (legStrike) {
         const chamber = Math.max(preparation * .75, extension);
         if (t.kind === 'frontKick') {
@@ -208,6 +214,7 @@ export class FighterRig implements FighterVisual {
         }
         this.arms[side].rotation.x += extension * .4; this.arms[side].rotation.z += s * .32 * extension; this.hips.position.y += extension * .025;
       } else {
+        if (!grapple) { const cover = side ? 0 : 1; this.arms[cover].rotation.x = -1.03; this.forearms[cover].rotation.x = -1.98; }
         this.arms[side].rotation.x -= preparation * .13; this.arms[side].rotation.z += s * preparation * .08;
         if (t.kind === 'clinchPunch') { this.arms[side].rotation.x = -1.3; this.forearms[side].rotation.x = -1.4 + extension * .7; }
         if (t.kind === 'groundPunch') { this.arms[side].rotation.x = -1.2 + extension * .15; this.forearms[side].rotation.x = -1.6 + extension * 1.5; }
@@ -217,7 +224,7 @@ export class FighterRig implements FighterVisual {
         if (!grapple && t.kind !== 'elbow') {
           this.root.updateMatrixWorld(true); const tip = strikeLocal(a);
           const resting = new THREE.Vector3(0, -.289, 0); this.forearms[side].localToWorld(resting);
-          const target = this.root.localToWorld(new THREE.Vector3(tip.x, tip.y, tip.z)); resting.lerp(target, smooth(extension / .8));
+          const target = this.root.localToWorld(new THREE.Vector3(tip.x * stanceSide, tip.y, tip.z)); resting.lerp(target, smooth(extension / .8));
           const pole = new THREE.Vector3(s * (t.kind === 'hook' ? 1 : .65), t.kind === 'uppercut' ? .8 : t.kind === 'hook' ? .08 : -.7, -.1).applyQuaternion(this.root.quaternion);
           solveLimb(this.arms[side], this.forearms[side], resting, pole, .3, .289);
         }
@@ -242,15 +249,14 @@ export class FighterRig implements FighterVisual {
         }
       }
       else {
-        const positions = ['guard', 'halfGuard', 'sideControl', 'mount'] as const;
+        const positions = ['guard', 'halfGuard', 'sideControl', 'mount', 'backControl', 'turtle'] as const;
         const transition = grapple.mode === 'ground' ? grapple.transition : null;
         const transitionT = transition ? clamp(transition.elapsed / (transition.duration ?? .8), 0, 1) : 0;
         const eased = transitionT * transitionT * (3 - 2 * transitionT);
         const fromIndex = positions.indexOf(transition?.from ?? grapple.position);
         const toIndex = positions.indexOf(transition?.to ?? grapple.position);
-        const positionIndex = fromIndex + (toIndex - fromIndex) * eased;
-        const weightAt = (index: number) => clamp(1 - Math.abs(positionIndex - index), 0, 1);
-        const guardWeight = weightAt(0), halfWeight = weightAt(1), sideWeight = weightAt(2), mountWeight = weightAt(3);
+        const weightAt = (index: number) => (fromIndex === index ? 1 - eased : 0) + (toIndex === index ? eased : 0);
+        const guardWeight = weightAt(0), halfWeight = weightAt(1), sideWeight = weightAt(2), mountWeight = weightAt(3), backWeight = weightAt(4), turtleWeight = weightAt(5);
         const side = transition ? (grapple.side ?? 1) + ((transition.targetSide ?? grapple.side ?? 1) - (grapple.side ?? 1)) * eased : (grapple.side ?? 1);
         // A sweep transfers weight throughout the roll. Blending both roles here avoids
         // the old one-frame switch from a supine fighter to a kneeling fighter.
@@ -286,11 +292,27 @@ export class FighterRig implements FighterVisual {
           const { extension, preparation } = strikeMotion(f.attack);
           this.spine.rotation.y += sign * (.22 * preparation - .32 * extension) * topWeight;
           this.spine.rotation.x += (.12 * preparation + .17 * extension) * topWeight;
+          this.hips.position.z += extension * (guardWeight * .17 + halfWeight * .08) * topWeight;
+          this.hips.position.y -= extension * guardWeight * .055 * topWeight;
+          this.hips.rotation.x += extension * guardWeight * .15 * topWeight;
           this.arms[hand].rotation.x = THREE.MathUtils.lerp(this.arms[hand].rotation.x, -.48 * preparation - 1.75 * extension - 1.1 * (1 - preparation - extension), topWeight);
           this.forearms[hand].rotation.x = THREE.MathUtils.lerp(this.forearms[hand].rotation.x, -1.65 + .9 * extension, topWeight);
           this.arms[hand].rotation.z += sign * .14 * extension * topWeight;
         }
-        if (grapple.mode === 'submission') {
+        if (backWeight + turtleWeight > 0) {
+          const special = backWeight + turtleWeight;
+          this.hips.position.y = THREE.MathUtils.lerp(this.hips.position.y, top ? .49 : .38, special);
+          this.hips.rotation.x = THREE.MathUtils.lerp(this.hips.rotation.x, backWeight > turtleWeight ? .38 : 1.25, special);
+          this.hips.rotation.y *= 1 - special;
+          this.spine.rotation.x = THREE.MathUtils.lerp(this.spine.rotation.x, .12, special);
+          for (let i = 0; i < 2; i++) { this.legs[i].rotation.x = THREE.MathUtils.lerp(this.legs[i].rotation.x, -.95, special); this.shins[i].rotation.x = THREE.MathUtils.lerp(this.shins[i].rotation.x, 1.7, special); }
+        }
+        if (topWeight > .5 && grapple.mode === 'ground') { const posture = grapple.posture ?? .25; this.hips.rotation.x -= posture * .2; this.spine.rotation.x -= posture * .18; this.hips.position.y += posture * .025; }
+        if (grapple.mode === 'submission' && grapple.submissionKind === 'choke') {
+          this.hips.position.y = top ? .42 : .36; this.hips.rotation.set(.35, 0, 0); this.spine.rotation.set(.06, 0, 0);
+          this.legs.forEach((b, i) => b.rotation.set(-1.2, 0, i ? -.28 : .28)); this.shins.forEach(b => b.rotation.x = 1.6);
+          this.arms.forEach((b, i) => b.rotation.set(-1.55, i ? -.6 : .6, 0)); this.forearms.forEach(b => b.rotation.x = -1.8);
+        } else if (grapple.mode === 'submission') {
           this.hips.rotation.x = -Math.PI / 2; this.hips.position.y = top ? .2 : .17;
           if (top) {
             this.hips.rotation.y = -Math.PI / 2; this.spine.rotation.set(.05, 0, 0);
@@ -334,11 +356,21 @@ export class FighterRig implements FighterVisual {
       }
     }
     if (f.state === 'knockedDown' || (result && result.winner !== f.id && ['KO','TKO'].includes(result.method))) {
-      this.hips.position.y = .23; this.hips.rotation.x = -Math.PI / 2; this.spine.rotation.x = -.1; this.legs.forEach(b => b.rotation.x = -.25); this.shins.forEach(b => b.rotation.x = .45); this.arms.forEach((b, i) => { b.rotation.x = -.4; b.rotation.z = i ? -.65 : .65; });
+      const falling = smooth((f.knockdownDuration - f.knockdownTime) / .42), rising = result ? 0 : smooth(1 - f.knockdownTime / .8);
+      const amount = result ? 1 : falling * (1 - rising);
+      const knee = f.knockdownKind === 'knee', side = f.knockdownKind === 'side';
+      this.hips.position.y = THREE.MathUtils.lerp(this.hips.position.y, knee ? .5 : .16, amount);
+      this.hips.rotation.x = (knee ? .4 : -Math.PI / 2) * amount;
+      this.hips.rotation.z = side ? f.reactionSide * .8 * amount : 0;
+      this.spine.rotation.x = knee ? .38 * amount : -.1 * amount;
+      this.legs.forEach((b, i) => b.rotation.x = (knee ? i ? -1.35 : -.5 : -.05) * amount);
+      this.shins.forEach((b, i) => b.rotation.x = (knee ? i ? 1.85 : .7 : .2) * amount);
+      this.arms.forEach((b, i) => { b.rotation.x = (knee ? -.8 : -.4) * amount; b.rotation.z = (i ? -.65 : .65) * amount; });
     }
     if (result?.winner === f.id) { this.arms.forEach((b, i) => { b.rotation.x = -2.9; b.rotation.z = i ? -.35 : .35; }); this.forearms.forEach(b => b.rotation.x = -.35); }
     this.spine.quaternion.multiply(impact);
-    if (f.reactionZone === 'head') { this.head.rotation.x += f.reaction * (f.reactionKind === 'uppercut' || f.reactionKind === 'knee' ? -.26 : .28); this.head.rotation.z += f.reaction * f.reactionSide * (f.reactionKind === 'hook' || f.reactionKind === 'elbow' ? .42 : .22); }
+    if (!grapple && f.hurt === 'rocked') { const stumble = Math.sin(time * 7 + f.id) * .025; this.hips.position.x += stumble; this.spine.rotation.z += stumble * 2; this.hips.position.y -= .035; }
+    if (f.reactionZone === 'head') { this.head.rotation.x += f.reaction * (f.reactionKind === 'uppercut' || f.reactionKind === 'knee' ? -.26 : .28); this.head.rotation.y += f.reaction * f.reactionSide * (f.reactionTarget === 'temple' ? .38 : .08); this.head.rotation.z += f.reaction * f.reactionSide * (f.reactionKind === 'hook' || f.reactionKind === 'elbow' ? .42 : .22); }
     else if (f.reactionZone === 'body') { this.spine.rotation.x += f.reaction * .34; this.spine.rotation.z += f.reaction * f.reactionSide * .12; this.hips.position.y -= f.reaction * .035; }
     else { const struck = f.reactionSide > 0 ? 0 : 1; this.legs[struck].rotation.z += f.reactionSide * f.reaction * .24; this.hips.rotation.z -= f.reactionSide * f.reaction * .12; }
     const cagePressure = Math.max(0, Math.hypot(f.position.x, f.position.z) - 4.05);
@@ -357,8 +389,9 @@ export class FighterRig implements FighterVisual {
     else this.feetPlanted = false;
     this.skeleton.bones.forEach((b, i) => this.poses[i].copy(b.quaternion));
     this.initialized = true;
-    this.skin.color.copy(this.skinBase).lerp(new THREE.Color('#ab665e'), Math.min(.24, f.damage.body / 350));
-    this.skin.clearcoat = .1 + Math.min(.16, exhaustion * .12 + time * .0004);
+    this.skin.color.copy(this.skinBase).lerp(this.tint, Math.min(.24, f.damage.body / 350));
+    const sweat = Math.min(.2, exhaustion * .14 + f.damage.body * .0005 + time * .00025);
+    this.skin.clearcoat = .06 + sweat; this.skin.roughness = .73 - sweat * .55;
     (this.bruise.material as THREE.MeshStandardMaterial).opacity = f.swelling * .65;
     (this.cut.material as THREE.MeshStandardMaterial).opacity = Math.max(0, f.cut - .25);
     if (this.model) for (const b of this.skeleton.bones) { const mapped = this.mapped.get(b.name)!; mapped.quaternion.copy(b.quaternion); if (b === this.hips) mapped.position.copy(b.position); }
@@ -398,7 +431,9 @@ export class FighterRig implements FighterVisual {
         }
       }
       if (this.stepTime < 1) {
+        const previousStep = this.stepTime;
         this.stepTime = Math.min(1, this.stepTime + dt / .19);
+        if (previousStep < 1 && this.stepTime === 1) this.footfalls++;
         this.footTargets[this.stepSide].lerpVectors(this.stepFrom, this.stepTo, smooth(this.stepTime));
         this.footTargets[this.stepSide].y += Math.sin(this.stepTime * Math.PI) * .065;
       }

@@ -9,7 +9,7 @@ try {
   await page.goto('http://127.0.0.1:5173/');
   await page.waitForFunction(() => window.__TUC__?.view && !document.querySelector('#start').disabled, undefined, { timeout: 60000 });
   await page.locator('#start').click();
-  const poses = process.argv.length > 2 ? process.argv.slice(2) : ['stance', 'southpaw', 'jab', 'hook', 'uppercut', 'elbow', 'body', 'low-kick', 'front-kick', 'side-kick', 'knee', 'high-kick', 'parry', 'slip', 'check', 'clinch', 'guard', 'half-guard', 'side-control', 'mount', 'ground-punch', 'sweep', 'standup', 'submission'];
+  const poses = process.argv.length > 2 ? process.argv.slice(2) : ['stance', 'southpaw', 'jab', 'hook', 'uppercut', 'elbow', 'body', 'low-kick', 'front-kick', 'side-kick', 'knee', 'high-kick', 'parry', 'slip', 'check', 'clinch', 'guard', 'half-guard', 'side-control', 'mount', 'back-control', 'turtle', 'choke', 'ground-punch', 'sweep', 'standup', 'submission'];
   for (const pose of poses) {
     await page.evaluate(async pose => {
       const { TECHNIQUES } = await import('/src/game/config.ts');
@@ -21,6 +21,8 @@ try {
         f.stance = 'orthodox'; f.stanceSwitch = 0; f.defense = null; f.defenseTime = 0;
       }
       const actions = { jab: 'punch-0-head', hook: 'hook-1-head', uppercut: 'uppercut-1-head', elbow: 'elbow-0-head', body: 'punch-1-body', 'low-kick': 'kick-0-leg', 'front-kick': 'frontKick-1-body', 'side-kick': 'sideKick-1-body', knee: 'knee-1-body', 'high-kick': 'kick-1-head' };
+      if (pose === 'damage') { const f = match.fighters[1]; f.damage.head = 74; f.damage.body = 43; f.damage.leg = 61; f.damage.leftLeg = 18; f.damage.rightLeg = 68; f.damage.stamina = 24; f.hurt = 'rocked'; f.shock = 48; f.hurtTime = 2; f.reaction = .75; f.reactionKind = 'hook'; f.reactionTarget = 'temple'; }
+      if (pose === 'knockdown') { const f = match.fighters[1]; f.state = 'knockedDown'; f.knockdownDuration = 3.15; f.knockdownTime = 2; f.knockdownKind = 'side'; f.hurt = 'knockdown'; }
       if (pose === 'southpaw') match.fighters[0].stance = 'southpaw';
       if (pose === 'parry') { match.fighters[0].defense = 'parry'; match.fighters[0].defenseTime = .15; }
       if (pose === 'slip') { match.fighters[0].defense = 'slipLeft'; match.fighters[0].defenseTime = .2; }
@@ -29,12 +31,12 @@ try {
         const technique = TECHNIQUES[actions[pose]];
         match.fighters[0].attack = { technique, elapsed: technique.windup + technique.active / 2, hit: false, previousTip: null };
       }
-      if (['clinch', 'guard', 'half-guard', 'side-control', 'mount', 'ground-punch', 'sweep', 'standup', 'submission'].includes(pose)) {
-        const position = pose === 'guard' || pose === 'sweep' || pose === 'standup' ? 'guard' : pose === 'half-guard' ? 'halfGuard' : pose === 'side-control' ? 'sideControl' : 'mount';
-        match.grapple = { mode: pose === 'clinch' ? 'clinch' : pose === 'submission' ? 'submission' : 'ground', top: 0, position, timer: 1, progress: .3, transition: null };
+      if (['clinch', 'guard', 'half-guard', 'side-control', 'mount', 'back-control', 'turtle', 'choke', 'ground-punch', 'sweep', 'standup', 'submission'].includes(pose)) {
+        const position = pose === 'guard' || pose === 'sweep' || pose === 'standup' ? 'guard' : pose === 'half-guard' ? 'halfGuard' : pose === 'side-control' ? 'sideControl' : pose === 'back-control' || pose === 'choke' ? 'backControl' : pose === 'turtle' ? 'turtle' : 'mount';
+        match.grapple = { mode: pose === 'clinch' ? 'clinch' : pose === 'submission' || pose === 'choke' ? 'submission' : 'ground', top: 0, position, submissionKind: pose === 'choke' ? 'choke' : 'armbar', timer: 1, progress: .3, transition: null };
         match.paused = false; match.step(1 / 60); match.paused = true;
-        for (let i = 0; i < 40; i++) { match.paused = false; match.step(1 / 60); match.paused = true; }
-        if (pose === 'ground-punch') { const technique = TECHNIQUES['groundPunch-1']; match.fighters[0].attack = { technique, elapsed: technique.windup + technique.active / 2, hit: false, previousTip: null }; }
+        for (let i = 0; i < 65; i++) { match.paused = false; match.step(1 / 60); match.paused = true; }
+        if (pose === 'ground-punch') { const technique = TECHNIQUES['ground-hammer-1-head']; match.fighters[0].attack = { technique, elapsed: technique.windup + technique.active / 2, hit: false, previousTip: null }; }
         if (pose === 'sweep') match.grapple.transition = { by: 1, direction: 'left', elapsed: .39, duration: .78, from: 'guard', to: 'guard', targetSide: -1, flips: true };
         if (pose === 'standup') { match.grapple.mode = 'standup'; match.grapple.timer = .31; }
       }

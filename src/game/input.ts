@@ -39,6 +39,7 @@ export class Keyboard {
       if (!match.grapple && down('Space') && ['KeyA', 'KeyD', 'KeyS'].includes(e.code)) result.action = e.code === 'KeyA' ? 'slip-left' : e.code === 'KeyD' ? 'slip-right' : 'pull';
       if (e.code === 'Space' && !match.grapple) result.action = e.ctrlKey ? 'check' : 'parry';
       if (e.code === 'KeyQ' && !match.grapple) result.action = 'stance';
+      if (e.code === 'KeyQ' && match.grapple?.mode === 'ground') result.action = 'posture';
       if (match.grapple?.mode === 'ground' && groundDirections[e.code]) { result.action = 'grapple'; result.direction = groundDirections[e.code]; }
       if (e.code === 'KeyG' && match.grapple?.mode !== 'ground' && match.grapple?.mode !== 'submission') { result.action = e.shiftKey ? 'takedown' : 'grapple'; result.direction = 'advance'; }
       if (e.code === 'KeyR') result.action = 'stand';

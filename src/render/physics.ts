@@ -29,6 +29,10 @@ export class ImpactPhysics {
     }
     this.world.timestep = 1 / 60; this.world.step();
   }
-  hit(event: Extract<CombatEvent, { type: 'hit' }>) { const s = Math.min(1, event.strength / 14); this.torsos[event.target]?.applyTorqueImpulse({ x: s * -.16, y: s * .08, z: s * (event.attacker ? .12 : -.12) }, true); }
+  hit(event: Extract<CombatEvent, { type: 'hit' }>) {
+    const s = Math.min(1, event.strength / 14) * (event.blocked ? .45 : event.grounded ? .35 : 1);
+    const lateral = /hook|elbow|kick/i.test(event.technique), side = /-1(?:-|$)/.test(event.technique) ? -1 : 1;
+    this.torsos[event.target]?.applyTorqueImpulse({ x: s * (event.zone === 'body' ? .12 : -.13), y: s * (lateral ? side * .09 : .01), z: s * (lateral ? side * .11 : 0) }, true);
+  }
   rotation(id: number) { const r = this.torsos[id]?.rotation(); return r ? new THREE.Quaternion(r.x, r.y, r.z, r.w) : new THREE.Quaternion(); }
 }

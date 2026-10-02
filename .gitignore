@@ -9,6 +9,7 @@ coverage/
 output/
 test-results/
 playwright-report/
+.playwright-cli/
 
 # Tool caches and incremental build data
 .cache/

@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Combat, clamp, strikeTip } from '../game/combat';
 import type { CombatEvent } from '../game/types';
 import { FighterRig } from './fighter';
+import { GroundContactSystem } from './groundContact';
+import { ImpactParticles } from './impactParticles';
 import type { FighterProfile } from '../game/fighters';
 import { ImpactPhysics } from './physics';
 import { batchRigidParts } from './batch';
@@ -16,10 +18,11 @@ export class ArenaView {
   renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(39, 1, .1, 100);
   rigs = [new FighterRig(0), new FighterRig(1)]; physics = new ImpactPhysics(); debug = false;
   private light: THREE.DirectionalLight; private shake = 0; private clock = 0; private hitMarkers: THREE.Mesh[] = [];
-  private particles: { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }[] = [];
+  private particles = new ImpactParticles(); private impactPoint = new THREE.Vector3(); private hitZoom = 0;
   private cagePanels: THREE.Mesh[] = []; private target = new THREE.Vector3(0, .85, 0); private look = this.target.clone();
   private contactShadows: THREE.Mesh[] = [];
   private walkoutStaff = new THREE.Group(); private announcer: THREE.Group; private referee: THREE.Group;
+  private groundContact = new GroundContactSystem();
   private walkoutCameraStage = '';
   private environment!: ArenaEnvironment;
   private floorMaterial!: THREE.MeshStandardMaterial;
@@ -35,11 +38,12 @@ export class ArenaView {
     const environment = new RoomEnvironment(), pmrem = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmrem.fromScene(environment, .04).texture; this.scene.environmentIntensity = .32;
     environment.dispose(); pmrem.dispose();
-    this.scene.add(new THREE.HemisphereLight('#d3e1f3', '#4d4540', .85));
+    this.scene.add(new THREE.HemisphereLight('#d3e1f3', '#4d4540', .58));
     this.light = new THREE.DirectionalLight('#fff0e2', 3.2); this.light.position.set(-3.5, 8, 2); this.light.castShadow = true;
     this.light.shadow.mapSize.set(2048, 2048); this.light.shadow.camera.left = -6; this.light.shadow.camera.right = 6; this.light.shadow.camera.top = 6; this.light.shadow.camera.bottom = -6; this.light.shadow.camera.near = .5; this.light.shadow.camera.far = 20; this.light.shadow.normalBias = .018; this.light.shadow.bias = -.00012; this.light.shadow.radius = 3; this.scene.add(this.light);
     const rim = new THREE.DirectionalLight('#c3d9ff', 2.4); rim.position.set(3, 5, -5); this.scene.add(rim);
     const fill = new THREE.DirectionalLight('#e1e9f3', .65); fill.position.set(3, 3, 6); this.scene.add(fill);
+    this.scene.add(this.particles.root);
     this.buildArena(); this.environment = arenaDetails(this.scene); batchRigidParts(this.scene); this.rigs.forEach(r => this.scene.add(r.root));
     this.announcer = this.staffFigure('#17191d', '#d1ef71'); this.referee = this.staffFigure('#202326', '#202326');
     this.walkoutStaff.add(this.announcer, this.referee);
@@ -56,6 +60,8 @@ export class ArenaView {
     this.camera.position.set(0, 5.6, 9.9);
     const resize = () => { this.camera.aspect = container.clientWidth / container.clientHeight; this.camera.updateProjectionMatrix(); this.renderer.setSize(container.clientWidth, container.clientHeight); };
     new ResizeObserver(resize).observe(container); resize();
+    const gl = this.renderer.getContext(), info = gl.getExtension('WEBGL_debug_renderer_info');
+    if (info && /swiftshader|llvmpipe|software/i.test(gl.getParameter(info.UNMASKED_RENDERER_WEBGL))) this.setQuality('low');
   }
   async init() { await this.physics.init(); }
   setFighters(profiles: readonly [FighterProfile, FighterProfile]) {
@@ -128,19 +134,15 @@ export class ArenaView {
     for (let i = 0; i < 10; i++) { const bar = new THREE.Mesh(new THREE.BoxGeometry(.05, 4, .05), steel); bar.position.set((i - 4.5) * 2.5, 1.6, -10); this.scene.add(bar); }
   }
   impact(event: Extract<CombatEvent, { type: 'hit' }>) {
-    this.physics.hit(event); this.shake = Math.max(this.shake, Math.min(.15, event.strength * .009));
+    this.physics.hit(event); this.shake = Math.max(this.shake, event.blocked || event.strength < 9 ? 0 : Math.min(.024, (event.strength - 9) * .002));
     if (event.blocked || this.quality !== 'high') return;
-    const count = Math.min(10, Math.floor(event.strength));
-    for (let i = 0; i < count; i++) {
-      const blood = event.zone === 'head' && event.strength > 10 && i === 0;
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(blood ? .015 : .009, 4, 3), new THREE.MeshBasicMaterial({ color: blood ? '#8a3030' : '#e5f0e6', transparent: true, opacity: .75 }));
-      const height = event.grounded ? event.zone === 'head' ? .32 : .23 : event.zone === 'head' ? 1.68 : event.zone === 'body' ? 1.2 : .55;
-      mesh.position.set(event.position.x, height, event.position.z); this.scene.add(mesh);
-      this.particles.push({ mesh, velocity: new THREE.Vector3((Math.random() - .5) * (event.grounded ? .8 : 2), (event.grounded ? .35 : .8) + Math.random() * (event.grounded ? .4 : 1), (Math.random() - .5) * (event.grounded ? .8 : 2)), life: .35 });
-    }
+    this.hitZoom = Math.max(this.hitZoom, event.strength >= 13 ? .085 : 0);
+    const rig = this.rigs[event.target]; (event.zone === 'head' ? rig.head : event.zone === 'body' ? rig.spine : rig.shins[0]).getWorldPosition(this.impactPoint);
+    this.particles.emit(event, this.impactPoint);
   }
   draw(match: Combat, dt: number, menu: boolean, frozen = false, frameDt = dt, walkout: WalkoutPresentation | null = null) {
     this.fps += (1 / Math.max(.001, frameDt) - this.fps) * .025;
+    if (frozen && !walkout) dt = 0;
     if (!frozen || walkout) this.clock += dt;
     this.environment.update(this.clock);
     this.rigs.forEach((rig, i) => {
@@ -150,25 +152,28 @@ export class ArenaView {
       rig.update(fighter, walkout ? null : match.grapple, this.clock, frozen && !walkout ? 0 : dt, this.physics.rotation(i), walkout ? null : match.result);
       this.contactShadows[i].visible = rig.root.visible;
       this.contactShadows[i].position.x = fighter.position.x; this.contactShadows[i].position.z = fighter.position.z;
-      this.contactShadows[i].scale.setScalar(match.grapple?.mode === 'ground' ? 1.5 : 1);
+      this.contactShadows[i].scale.setScalar(match.grapple?.mode === 'ground' || fighter.state === 'knockedDown' ? 1.5 : 1);
     });
-    if (!frozen && !walkout && match.grapple?.mode === 'submission') {
+    if (!frozen && !walkout) this.groundContact.update(match, this.rigs as [FighterRig, FighterRig]);
+    if (!frozen && !walkout && match.grapple?.mode === 'submission' && match.grapple.submissionKind !== 'choke') {
       const top = match.grapple.top;
       this.rigs[top].holdSubmission(this.rigs[top ? 0 : 1], smooth(match.grapple.timer / .4));
     }
     const [a, b] = walkout ? walkout.fighters.map((fighter, id) => ({ ...match.fighters[id], position: fighter.position })) as typeof match.fighters : match.fighters;
-    const grounded = !walkout && !!match.grapple && match.grapple.mode !== 'clinch';
+    const grounded = !walkout && (!!match.grapple && match.grapple.mode !== 'clinch' || match.fighters.some(f => f.state === 'knockedDown'));
     const middle = new THREE.Vector3((a.position.x + b.position.x) / 2, grounded ? .42 : 1.02, (a.position.z + b.position.z) / 2);
     const distance = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
-    const zoom = menu ? 20.5 : grounded ? clamp(4.15 + distance * .55, 4.65, 7.4) : clamp(4.45 + distance * .72, 5.2, 11.2);
+    this.hitZoom *= Math.exp(-dt * 16);
+    const framing = Math.max(1, 1.45 / this.camera.aspect);
+    const zoom = (menu ? 20.5 : grounded ? clamp(4.05 + distance * .55, 4.65, 7.4) : clamp(4.45 + distance * .72, 5.2, 11.2)) * framing;
     const focus = middle.clone(); if (menu) focus.y = 4.6;
     const targetFov = menu ? 43 : walkout ? 41 : grounded ? 36 : 37;
     const fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 1 - Math.exp(-dt * 5));
     if (Math.abs(fov - this.camera.fov) > .001) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     const desired = new THREE.Vector3(
-      middle.x * .78 + (menu ? 5.9 : .18),
+      middle.x + (menu ? 5.9 : .18),
       menu ? 11.8 : grounded ? 2.22 + distance * .08 : 2.45 + distance * .1,
-      middle.z * .78 + zoom,
+      middle.z + zoom - this.hitZoom,
     );
     let cameraCut = false;
     if (walkout) {
@@ -185,14 +190,14 @@ export class ArenaView {
     if (cameraCut) { this.camera.position.copy(desired); this.look.copy(focus); }
     else { this.camera.position.lerp(desired, 1 - Math.exp(-dt * (menu ? 2 : walkout ? 2.6 : 4.2))); this.look.lerp(focus, 1 - Math.exp(-dt * (menu ? 4 : 7))); }
     this.shake *= Math.exp(-dt * 18);
-    this.target.copy(this.look).add(new THREE.Vector3(Math.sin(this.clock * 110) * this.shake, Math.cos(this.clock * 93) * this.shake * .7, 0)); this.camera.lookAt(this.target);
+    this.target.copy(this.look); this.target.x += Math.sin(this.clock * 70) * this.shake; this.target.y += Math.cos(this.clock * 63) * this.shake * .5; this.camera.lookAt(this.target);
     for (const panel of this.cagePanels) {
       const corner = walkout?.beat.corner;
       const gateOpen = !!walkout && corner !== undefined && (walkout.beat.stage.endsWith('entry') || walkout.beat.stage.endsWith('inspection')) && (corner === 1 ? panel.position.x > 3.6 : panel.position.x < -3.6);
       (panel.material as THREE.MeshStandardMaterial).opacity = gateOpen ? .025 : panel.position.z > middle.z + .8 ? .065 : .43;
     }
     this.updateWalkoutStaff(walkout);
-    for (let i = this.particles.length - 1; i >= 0; i--) { const p = this.particles[i]; p.life -= dt; p.velocity.y -= dt * 5; p.mesh.position.addScaledVector(p.velocity, dt); (p.mesh.material as THREE.MeshBasicMaterial).opacity = p.life * 2; if (p.life <= 0) { this.scene.remove(p.mesh); p.mesh.geometry.dispose(); (p.mesh.material as THREE.Material).dispose(); this.particles.splice(i, 1); } }
+    this.particles.update(frozen ? 0 : dt);
     this.hitMarkers.forEach((m, i) => { const f = match.fighters[i]; m.visible = this.debug && !!f.attack; if (f.attack) { const tip = strikeTip(f, f.attack); m.position.set(tip.x, f.attack.technique.zone === 'head' ? 1.68 : f.attack.technique.zone === 'body' ? 1.2 : .5, tip.z); } });
     this.renderer.render(this.scene, this.camera);
   }

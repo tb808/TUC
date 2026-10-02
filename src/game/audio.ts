@@ -1,7 +1,19 @@
+import type { Zone } from './types';
 export class FightAudio {
   private context: AudioContext | null = null; private master: GainNode | null = null; private walkoutTimers: number[] = []; muted = false;
+  private impactNoise: AudioBuffer | null = null; private footfalls = [0, 0];
   async start() {
-    if (!this.context) { this.context = new AudioContext(); this.master = this.context.createGain(); this.master.gain.value = .55; this.master.connect(this.context.destination); }
+    if (!this.context) {
+      this.context = new AudioContext(); this.master = this.context.createGain(); this.master.gain.value = .55; this.master.connect(this.context.destination);
+      this.impactNoise = this.context.createBuffer(1, this.context.sampleRate * .4, this.context.sampleRate);
+      const data = this.impactNoise.getChannelData(0); for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1);
+      // A quiet filtered room bed gives impacts a sense of space without masking them.
+      const room = this.context.createBufferSource(), filter = this.context.createBiquadFilter(), gain = this.context.createGain();
+      const roomNoise = this.context.createBuffer(1, this.context.sampleRate * 3, this.context.sampleRate), crowd = roomNoise.getChannelData(0);
+      let sample = 0; for (let i = 0; i < crowd.length; i++) { sample = sample * .98 + (Math.random() * 2 - 1) * .02; crowd[i] = sample; }
+      room.buffer = roomNoise; room.loop = true; filter.type = 'bandpass'; filter.frequency.value = 440; filter.Q.value = .45; gain.gain.value = .06;
+      room.connect(filter); filter.connect(gain); gain.connect(this.master); room.start();
+    }
     await this.context.resume();
   }
   setMuted(value: boolean) { this.muted = value; if (this.master) this.master.gain.value = value ? 0 : .55; }
@@ -12,18 +24,19 @@ export class FightAudio {
     g.gain.setValueAtTime(volume, c.currentTime); g.gain.exponentialRampToValueAtTime(.001, c.currentTime + duration);
     o.connect(g); g.connect(this.master); o.start(); o.stop(c.currentTime + duration);
   }
-  hit(strength: number, blocked: boolean) {
+  hit(strength: number, blocked: boolean, zone: Zone = 'head', technique = 'punch', grounded = false) {
     if (!this.context || !this.master) return;
-    const c = this.context, duration = blocked ? .07 : .1 + strength * .004;
-    const buffer = c.createBuffer(1, Math.ceil(c.sampleRate * duration), c.sampleRate), data = buffer.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 3);
-    const noise = c.createBufferSource(), filter = c.createBiquadFilter(), gain = c.createGain(); noise.buffer = buffer;
-    filter.type = 'lowpass'; filter.frequency.value = blocked ? 1800 : 700 + strength * 60;
-    gain.gain.value = blocked ? .25 : .25 + Math.min(.45, strength / 35);
-    noise.connect(filter); filter.connect(gain); gain.connect(this.master); noise.start();
-    this.tone(blocked ? 145 : 90, .15, blocked ? .13 : Math.min(.7, .18 + strength / 30), 'sine', 35);
+    const c = this.context, kick = technique.toLowerCase().includes('kick'), duration = blocked ? .075 : zone === 'body' ? .19 : kick ? .17 : .11;
+    const noise = c.createBufferSource(), filter = c.createBiquadFilter(), gain = c.createGain(); noise.buffer = this.impactNoise;
+    noise.playbackRate.value = .94 + Math.random() * .12;
+    filter.type = 'lowpass'; filter.frequency.value = (blocked ? 2100 : zone === 'body' ? 650 : zone === 'leg' ? 900 : 1500) * (.9 + Math.random() * .2);
+    gain.gain.setValueAtTime(blocked ? .17 : .2 + Math.min(.3, strength / 45), c.currentTime); gain.gain.exponentialRampToValueAtTime(.001, c.currentTime + duration);
+    noise.connect(filter); filter.connect(gain); gain.connect(this.master); noise.start(); noise.stop(c.currentTime + duration);
+    this.tone(blocked ? 145 : zone === 'body' ? 65 : kick ? 78 : 110, duration, blocked ? .09 : Math.min(.4, .12 + strength / 50), 'sine', 35);
+    if (grounded) this.tone(48, .13, .035, 'sine', 28);
     if (strength > 10 && !blocked) this.tone(155, .18, .06, 'triangle', 65);
   }
+  footsteps(counts: number[]) { counts.forEach((count, id) => { if (count > this.footfalls[id]) this.tone(72 + id * 9, .045, .016, 'triangle', 38); this.footfalls[id] = count; }); }
   bell() { this.tone(640, .9, .2); this.tone(960, .6, .13); this.tone(1280, .4, .07); }
   walkoutCue(stage: string, corner?: 0 | 1) {
     if (!this.context || !this.master) return;

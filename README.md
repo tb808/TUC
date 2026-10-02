@@ -57,8 +57,12 @@ Am besten funktioniert TUC mit einer aktuellen Version von Chrome oder Edge. Das
 | --- | --- |
 | **W / A / S / D** | Angezeigten Positionswechsel direkt starten |
 | **J / K** | Ground-and-Pound aus der oberen Position |
+| **Shift + J / K** | Kurze Boden-Hooks |
+| **Strg + J / K** | Ground-and-Pound zum Körper |
+| **Alt + Shift + J / K** | Hammerfists |
+| **Q** | Oben: Posture aufrichten / absenken |
 | **Leertaste** | Positionswechsel oder Aufgabeversuch verteidigen |
-| **U** | Aus der Mount eine Armbar ansetzen |
+| **U** | Armbar aus Mount / Rear Naked Choke aus Back Control |
 | **U halten** | Armbar weiter durchziehen |
 | **R** | Aufstehen, wenn es die Position erlaubt |
 
@@ -82,6 +86,9 @@ Mit **Esc** pausierst du den Kampf.
 - Wehre einen Takedown rechtzeitig mit **Strg + Leertaste** ab.
 - Am Boden zeigt das Richtungsmenü, welche Position du mit **W**, **A**, **S** oder **D** erreichst. Ein einzelner Tastendruck genügt.
 - Aus der Mount kannst du mit **U** eine Armbar starten und sie anschließend mit gehaltenem **U** beenden.
+- Aus Mount führt ein weiterer Positionswechsel zu Back Control. Der untere Kämpfer kann sich aus Mount oder Side Control mit **D** in Turtle drehen und von dort Guard zurückholen.
+- **Q** richtet dich am Boden auf und verstärkt Ground-and-Pound. Die Deckung des Gegners kann deine Posture wieder herunterziehen. Körperdeckung schützt vor Body Shots; hohe Deckung schützt den Kopf.
+- Leichte Treffer lassen sich während eigener Angriffe verkraften. Schwere Konter können dich unterbrechen oder ins Taumeln bringen. Erschöpfung und fehlende Balance reduzieren Tempo und Wirkung, ohne die Steuerung zu blockieren.
 
 ## Was ist enthalten?
 
@@ -94,6 +101,9 @@ Mit **Esc** pausierst du den Kampf.
 - Anatomische Trefferzonen für Kinn, Schläfe, Leber, Rippen, Solarplexus und Oberschenkel
 - Clinch, Takedowns und Takedown-Abwehr
 - Bodenkampf mit mehreren Positionen, Sweeps und Ground-and-Pound
+- Sechs verbundene Bodenpositionen, Posture, kurze Schläge, Hooks, Hammerfists und Körpertreffer mit Gegnerkontakt per IK
+- Abgestufte Hurt-/Stun-/Rocked-Zustände, seitliche, rückwärtige und kniende Niederschläge mit kontrollierter Erholung
+- Broadcast-HUD mit zentraler Uhr, nachziehender Schadensanzeige und Körpersilhouetten für Kopf, Körper und beide Beine
 - KO, TKO, Aufgabe und Punktrichterentscheidung
 - Drei Runden, Pausenfunktion, Neustart und Revanche
 - Zwei Grafikstufen für unterschiedliche Rechner
@@ -104,6 +114,8 @@ Mit **Esc** pausierst du den Kampf.
 TUC ist ein eigenständiger Prototyp. Kämpfer und Bewegungen wurden speziell für das Spiel erstellt und sind bewusst einfacher gehalten als in einer großen kommerziellen Sportsimulation.
 
 Diese Version bietet fünf Arenen und Kämpfe gegen den Computer. Multiplayer, Karriere-Modus, Gamepad- und Touch-Steuerung sind derzeit nicht enthalten.
+
+Die Kämpfer verwenden weiterhin eigene prozedurale Modelle und Animationen. Hautmikrostruktur, Muskelkonturen, Schweiß und Licht wurden verfeinert; fotorealistische Scan-Modelle und Motion-Capture-Clips sind nicht enthalten. Audio wird lokal synthetisiert. Bei erkanntem Software-Rendering startet das Spiel automatisch mit niedriger Grafikqualität; echte GPU-Leistung wird dadurch nicht zugesichert.
 
 ## Für Entwickler
 

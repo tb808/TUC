@@ -1,18 +1,27 @@
-# TUC – geprüfter Stand, 21. September 2026
+# TUC – geprüfter Stand, 30. September 2026
 
-- TypeScript-Prüfung ohne Fehler.
-- 32 Unit-/Integrationstests bestanden, darunter vollständige Matches auf allen fünf KI-Stufen, Treffergeometrie, Deckung, Ressourcen, Runden, Kampfenden und Grappling. Neue Prüfungen decken durchgängige Schlagkurven, Rückstoß ohne Positionssprung, Fußkontakt, eingefrorene Posen und endliche Gelenkrotationen ab.
-- Physiktest bestätigt stärkere Auslenkung bei schweren Treffern und gedämpfte Rückkehr in die Grundhaltung.
-- 2 Playwright-Browserabläufe bestanden: Menü, Kampf, Pause, Ende, Revanche und Hauptmenü; außerdem Clinch, Takedown, sämtliche Bodenpositionen und Armbar-Sieg mit Tastatur. Abschließender Lauf mit `playwright.software.config.ts`: Desktop-Layout bei 1440×900, halbe Rasterauflösung, 1,5 Minuten Gesamtdauer. Der erste Lauf mit voller Rasterauflösung bestand den normalen Kampfablauf, überschritt beim Submission-Ablauf aber das Zeitlimit.
-- Zehn feste Kampfsituationen im echten Browser aufgenommen und zentrale Stand-, Schlag-, Tritt- und Bodenposen visuell geprüft. Nach Korrekturen vier Situationen erneut aufgenommen; keine JavaScript-Browserfehler. Reproduktion mit `node scripts/review-animation.mjs` bei laufendem Entwicklungsserver.
-- Produktionsbuild erfolgreich. Hinweis des Bundlers: großer JavaScript-Chunk durch Three.js und die eingebettete Rapier-WASM-Laufzeit; rund 1005 KB gzip.
+## Implementierung
 
-## Leistungsmessung
+Das vorhandene Three.js-/Rapier-Spiel wurde erweitert. Rig, Fuß-IK, Training, Rundenlogik und aktive Defense bleiben Grundlage.
 
-Der verfügbare headless Chromium verwendet **ANGLE / SwiftShader**, also CPU-Rendering. Eine Messung während der Grafiküberarbeitung bei 1920×1080 ergab rund **0,9 FPS** in hoher und **1,3 FPS** in niedriger Qualität (nur 8 beziehungsweise 11 Samples). Das ist langsamer als der zuvor dokumentierte Prototyp (3,5 / 7,2 FPS); die detaillierteren Materialien und Geometrien erhöhen die Renderlast. Nachfolgende visuelle Korrekturen sind kein neuer Leistungsnachweis. Eine Messung des finalen Stands mit echter GPU steht aus; 60 FPS sind nicht bestätigt.
+- Kontakt prüft die gemeinsame Schlagkurve erst während tatsächlicher Extension. Gemessene Tip-Geschwindigkeit, Winkel, Balance, Stamina, Gegnerbewegung und Konter beeinflussen die Wirkung. Jab, Cross und Hook erhalten unterschiedliche Hüft-/Schulterrotation; die freie Hand schützt den Kopf.
+- Leichte Reaktionen bleiben additiv. Schwere Treffer unterbrechen Attacken; Hurt, Stunned und Rocked erholen sich über Zeit. Niederschläge unterscheiden Rückwärts-, Seiten- und Kniepose und blenden in die Erholung. Check-/Parry-Fenster passen zum späteren Kontaktzeitpunkt.
+- Full Guard, Half Guard, Side Control, Mount, Back Control und Turtle sind über zeitbasierte, abwehrbare Transitionen verbunden. Stamina und Positionskontrolle beeinflussen deren Dauer. Treffer können laufende Versuche abbrechen.
+- Ground-and-Pound erhält kurze Schläge, Hooks, Hammerfists, Körpertreffer und Posture. Ein Kontaktpass nach beiden Fighter-Updates richtet Schlag- und Frame-Hände per Zweiknochen-IK auf den tatsächlichen Gegner aus. Die Armbar wird um einen Rear Naked Choke aus Back Control ergänzt.
+- Fighter unterscheiden sich zusätzlich in Reichweite, Größe, Gewicht, Recovery, Wrestling, Submission und Startauslage. Hautmikrostruktur, Muskelkonturen, Schweiß und Publikumsbeleuchtung wurden überarbeitet.
+- Kamera berücksichtigt Seitenverhältnis und Knockdowns. Leichte Treffer erzeugen keinen Shake; schwere Treffer nur kleine Impulse und maximal 32 ms Hit-Pause. Trefferpartikel verwenden einen begrenzten wiederverwendbaren Pool. Audio unterscheidet Kopf, Körper, Beine, Kicks, Blocks und Mattenkontakt; Schritte und ein leiser Raumklang ergänzen es.
+- Neues dunkles Broadcast-HUD: zentrale Uhr, kompakte Fighter-Panels, verzögerter Schadenstrail, Stamina und vierteilige Körpersilhouette. Bodenaktionen erscheinen in den unteren Ecken; Treffer-/Combo-Hinweise bleiben klein.
+- Unbenutzte Publikumsinstanzen am Weltursprung entfernt. Fokus wird nach Walkout und Pause wieder auf die Spielfläche gesetzt.
 
-Starre Mesh-Teile werden weiterhin zusammengefasst; Tribünenbesucher und Sitzreihen nutzen Instanzen. Die genannte Messung meldete 106 beziehungsweise 104 Zeichenaufrufe. Niedrige Qualität schaltet Schatten aus, reduziert die interne Auflösung auf 80 % und verzichtet auf neue Trefferpartikel. Rohdaten stehen in `output/playwright/performance.json`. Die reproduzierbare Messung startet mit `node scripts/measure-browser.mjs`, während der Entwicklungsserver läuft.
+## Prüfungen
 
-## Visuelle Grenzen
+- **60 Tests in sechs Dateien bestanden.** Abgedeckt sind Treffergeometrie, Block, Stamina, aktive Defense, fünf KI-Stufen einschließlich kompletter Matches, Runden/Pause, KO/TKO/Submission, Sweep/Stand-up, Fußkontakt und eingefrorene Posen. Neue Tests prüfen Kontaktgeschwindigkeit und Auslagenspiegelung, Hurt/Recovery, drei Knockdown-Varianten, Back Control/Turtle/Choke, Posture und Body-Defense. Kontaktabstände und endliche Bones werden in allen sechs Bodenpositionen geprüft.
+- **Fünf bestehende Browserabläufe bestanden** mit playwright.software.config.ts (4,3 Minuten): Menü/Kampf/Pause/Ende/Revanche; Tastatur-Clinch bis Armbar-Finish; alle Arenen; geführtes Training; erweiterte Strikes und Defense. Frühe Läufe während gleichzeitiger Browserarbeit und Live-Codeänderungen hatten Timeouts; der ungestörte Lauf bestand vollständig.
+- **Neun finale Posen im Browser aufgenommen, ohne JavaScript-Fehler:** Stand, Guard, Mount, Back Control, Turtle, Choke, Ground-Hammerfist, Schadensanzeige und Knockdown. Die Liegepose wurde danach näher an die Matte gesetzt und erneut aufgenommen. Screenshots liegen in output/playwright/animation/; reproduzierbar mit node scripts/review-animation.mjs bei laufendem Vite-Server.
+- TypeScript-Prüfung und Produktionsbuild bestanden. Der Bundle-Hinweis auf große Chunks besteht weiterhin: Three.js und eingebettetes Rapier-WASM ergeben rund **1,03 MB gzip** JavaScript.
 
-Die Modelle sind eigene, prozedurale, vereinfachte Humanoide mit Bone-Hierarchie. Animationen und Bodenkampfpositionen sind ein funktionaler Ausgangspunkt; der Stand ist nicht mit fotorealistischen Konsolen-MMA-Spielen gleichzusetzen. Die kompatible GLB-Schnittstelle ist für spätere hochwertige eigene Modelle vorbereitet. Audio wird synthetisiert. Die physikalischen Reaktionen ergänzen die Animationen und simulieren keinen vollständig physikalischen menschlichen Körper.
+## Leistungs- und Darstellungsgrenzen
+
+Der Testbrowser verwendet Software-WebGL. Dieser wird erkannt und startet automatisch mit niedriger Grafikqualität, ohne Schatten. Der Nutzer kann die Qualität im Menü ändern. Es wurde keine abschließende FPS-Messung auf echter GPU durchgeführt; eine bestimmte Bildrate ist nicht bestätigt.
+
+Fighter und Animationen bleiben eigene stilisierte prozedurale Humanoide. Die Verbesserungen ersetzen keine Scan-Modelle oder Motion-Capture-Assets. Kontakt wird über begrenzte IK und kontrollierte Physics-Reaktionen angenähert, nicht über eine vollständige physikalische menschliche Körpersimulation. Audio bleibt synthetisiert. Die vorhandene kompatible GLB-Schnittstelle ist weiterhin verfügbar.

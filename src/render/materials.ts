@@ -23,8 +23,16 @@ export function surfaceTexture(kind: 'skin' | 'cloth' | 'canvas', size = 256) {
 
 export function skinMaterial(color: string) {
   const pores = surfaceTexture('skin');
-  return new THREE.MeshPhysicalMaterial({ color, roughness: .7, bumpMap: pores, bumpScale: .0015,
-    clearcoat: .1, clearcoatRoughness: .5, sheen: .08, sheenColor: new THREE.Color('#dbaa89') });
+  const size = 128, pixels = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const i = (y * size + x) * 4;
+    const mottling = Math.sin(x * .19) * Math.cos(y * .13) * 5 + Math.sin(x * .61 + y * .4) * 2;
+    pixels[i] = 248 + mottling; pixels[i + 1] = 241 + mottling; pixels[i + 2] = 235 + mottling; pixels[i + 3] = 255;
+  }
+  const tint = new THREE.DataTexture(pixels, size, size); tint.colorSpace = THREE.SRGBColorSpace;
+  tint.wrapS = tint.wrapT = THREE.RepeatWrapping; tint.magFilter = THREE.LinearFilter; tint.needsUpdate = true;
+  return new THREE.MeshPhysicalMaterial({ color, map: tint, roughness: .73, bumpMap: pores, bumpScale: .0018,
+    clearcoat: .06, clearcoatRoughness: .38, sheen: .12, sheenColor: new THREE.Color('#b98066'), sheenRoughness: .85 });
 }
 
 export function fabricMaterial(color: string) {
